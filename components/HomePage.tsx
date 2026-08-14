@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
@@ -14,6 +14,7 @@ import {
   Landmark,
   Mic2,
   PackageCheck,
+  Pause,
   Play,
   ScanText,
   ShieldCheck,
@@ -29,6 +30,7 @@ import { Footer } from './Footer';
 import { ChatWidget } from './ChatWidget';
 import { VideoPreview } from './VideoPreview';
 import { AseSystemDiagram } from './AseSystemDiagram';
+import { LandingSyncDemo } from './LandingSyncDemo';
 
 const Fade = ({ children, delay = 0, className = '' }: { children: React.ReactNode; delay?: number; className?: string }) => (
   <motion.div
@@ -98,51 +100,31 @@ export function HomePage() {
     <>
       <Header />
       <main>
-        <section className="hero">
+        <section className="hero hero-product-story">
           <div className="container hero-grid">
             <div className="hero-copy">
               <motion.div className="hero-kicker" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
-                <span>Preview</span> Voice-to-workflow for African operations <ChevronRight size={13} />
+                <span>Interactive preview</span> Ase · VOXFLOW <ChevronRight size={13} />
               </motion.div>
               <motion.h1 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
-                Make the way your business works <span className="gradient-word">runnable.</span>
+                Turn voice, systems, and teams into one automation fabric.
               </motion.h1>
               <p>
-                Ase turns operating knowledge into visible workflow graphs. Shape the work on the VOXFLOW canvas, then verify bounded demo execution, evidence and approval states through one canonical contract.
+                Describe a process and Ase assembles triggers, conditions, and integrations in a visual canvas built for African business intelligence—so every handoff can be inspected before it moves.
               </p>
               <div className="hero-actions">
                 <Link href="/app/canvas" className="btn btn-dark">Build a workflow <ArrowRight size={16} /></Link>
-                <Link href="/platform" className="btn btn-light"><CirclePlay size={16} /> See how it works</Link>
+                <a href="#live-workflow" className="btn btn-light"><CirclePlay size={16} /> Try the demo</a>
               </div>
-              <div className="hero-note" aria-label="Product benefits">
-                <span><i /> Explore without a card</span>
-                <span><i /> Emit correlated demo evidence</span>
-                <span><i /> External adapters stay fail-closed</span>
+              <div className="hero-note" aria-label="Product preview boundaries">
+                <span><i /> Shared canonical graph</span>
+                <span><i /> Explicit approval gates</span>
+                <span><i /> Scripted, side-effect-free preview</span>
               </div>
             </div>
 
-            <motion.div className="hero-visual" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.18, delay: 0.04 }}>
-              <div className="orb-stage" aria-hidden="true">
-                <div className="orb-glow" />
-                <div className="orbit">
-                  <span className="integration-chip chip-1">INPUT</span>
-                  <span className="integration-chip chip-2">GRAPH</span>
-                  <span className="integration-chip chip-3">POLICY</span>
-                  <span className="integration-chip chip-4">EVIDENCE</span>
-                  <span className="integration-chip chip-5">HUMAN</span>
-                </div>
-                <div className="orb"><div className="orb-lines" /><span className="orb-core">ASE</span></div>
-              </div>
-              <div className="floating-card snippet-card">
-                <span className="float-label">Illustrative workflow</span>
-                <div className="code-row"><i className="code-dot" /> voice.request</div>
-                <div className="code-row"><i className="code-dot amber" /> risk.score &lt; 40</div>
-                <div className="code-row"><i className="code-dot green" /> finance.approve</div>
-              </div>
-              <div className="floating-card ai-card">
-                <div className="ai-top"><span className="ai-icon"><Bot size={15} /></span>Illustrative Ase assist</div>
-                <p>I added a control gate before the purchase order is created.</p>
-              </div>
+            <motion.div id="live-workflow" className="hero-visual hero-sync-visual" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.18, delay: 0.04 }}>
+              <LandingSyncDemo />
             </motion.div>
           </div>
         </section>
@@ -183,7 +165,7 @@ export function HomePage() {
                 <Link href="/platform" className="text-link">Explore the complete platform <ArrowRight size={15} /></Link>
               </div>
             </div>
-            <Fade><div className="stats-ribbon"><div className="stat"><strong>1</strong><span>canonical workflow graph</span></div><div className="stat"><strong>5</strong><span>bounded agent limits</span></div><div className="stat"><strong>22</strong><span>passing automated tests</span></div><div className="stat"><strong>0</strong><span>external demo side effects</span></div></div></Fade>
+            <Fade><div className="stats-ribbon"><div className="stat"><strong>1</strong><span>canonical workflow graph</span></div><div className="stat"><strong>5</strong><span>bounded agent limits</span></div><div className="stat"><strong>35</strong><span>passing automated tests</span></div><div className="stat"><strong>0</strong><span>external demo side effects</span></div></div></Fade>
           </div>
         </section>
 
@@ -293,32 +275,122 @@ export function HomePage() {
   );
 }
 
+const previewNodeDetails = {
+  start: { label: 'Start trigger', field: 'Input', value: 'Voice or form' },
+  voice: { label: 'Voice command', field: 'Locale', value: 'English · Nigeria' },
+  condition: { label: 'Risk gateway', field: 'Risk threshold', value: 'Less than 40' },
+  vendor: { label: 'Vendor lookup', field: 'Location', value: 'Port Harcourt, NG' },
+  approval: { label: 'Create approval', field: 'Policy', value: 'Finance approval stop' },
+} as const;
+
+type PreviewNodeKey = keyof typeof previewNodeDetails;
+type PreviewRunState = 'idle' | 'running' | 'paused' | 'approval' | 'success';
+
 function WorkflowPreview() {
+  const [selectedNode, setSelectedNode] = useState<PreviewNodeKey>('vendor');
+  const [zoom, setZoom] = useState(1);
+  const [runState, setRunState] = useState<PreviewRunState>('idle');
+  const [runStep, setRunStep] = useState(0);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  useEffect(() => {
+    if (runState !== 'running') return;
+    const timer = window.setTimeout(() => {
+      if (runStep >= 3) {
+        setRunStep(4);
+        setRunState('approval');
+      } else {
+        setRunStep((step) => step + 1);
+      }
+    }, 720);
+    return () => window.clearTimeout(timer);
+  }, [runState, runStep]);
+
+  useEffect(() => {
+    if (saveState === 'saving') {
+      const complete = window.setTimeout(() => setSaveState('saved'), 360);
+      return () => window.clearTimeout(complete);
+    }
+    if (saveState === 'saved') {
+      const clear = window.setTimeout(() => setSaveState('idle'), 1500);
+      return () => window.clearTimeout(clear);
+    }
+  }, [saveState]);
+
+  const details = previewNodeDetails[selectedNode];
+  const runLabel = runState === 'running' ? 'Pause run' : runState === 'paused' ? 'Resume run' : runState === 'approval' ? 'Complete approval' : 'Run workflow';
+  const statusCopy = runState === 'idle'
+    ? 'Ready to run this side-effect-free preview.'
+    : runState === 'running'
+      ? `Running step ${runStep + 1} of 5…`
+      : runState === 'paused'
+        ? `Paused at step ${runStep + 1} of 5.`
+        : runState === 'approval'
+          ? 'Approval gate reached. A human decision is required.'
+          : 'Approval recorded. Preview run completed.';
+
+  const handleRun = () => {
+    if (runState === 'running') return setRunState('paused');
+    if (runState === 'paused') return setRunState('running');
+    if (runState === 'approval') return setRunState('success');
+    setRunStep(0);
+    setRunState('running');
+  };
+
+  const nodeClass = (key: PreviewNodeKey, index: number) => [
+    'demo-node',
+    key === 'voice' ? 'voice' : '',
+    key === 'vendor' ? 'vendor' : '',
+    key === 'approval' ? 'end' : '',
+    selectedNode === key ? 'is-selected' : '',
+    runStep === index && runState !== 'idle' && runState !== 'success' ? 'is-run-active' : '',
+    (runStep > index || runState === 'success') && runState !== 'idle' ? 'is-run-complete' : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <div className="workflow-shell">
       <aside className="workflow-sidebar">
         <p className="panel-label">Node palette</p>
-        <div className="node-chip"><i /> Start trigger</div>
-        <div className="node-chip voice"><i /> Voice command</div>
-        <div className="node-chip"><i /> Condition</div>
-        <div className="node-chip vendor"><i /> Vendor lookup</div>
-        <div className="node-chip"><i /> Send approval</div>
+        {(Object.entries(previewNodeDetails) as [PreviewNodeKey, typeof previewNodeDetails[PreviewNodeKey]][]).map(([key, item]) => (
+          <button type="button" className={`node-chip ${key} ${selectedNode === key ? 'is-selected' : ''}`} key={key} onClick={() => setSelectedNode(key)} aria-pressed={selectedNode === key}>
+            <i /> {item.label}
+          </button>
+        ))}
       </aside>
       <div className="workflow-canvas">
-        <div className="canvas-toolbar"><button className="canvas-tool" aria-label="Preview only: zoom is unavailable" disabled><ZoomIn size={14} /></button><button className="canvas-tool" aria-label="Preview only: zoom is unavailable" disabled><ZoomOut size={14} /></button><button className="canvas-tool" aria-label="Preview only: run is unavailable" disabled><Play size={14} /></button></div>
-        <svg className="edge-svg" viewBox="0 0 800 590" preserveAspectRatio="none" aria-hidden="true"><path className="edge-path active" d="M115,176 C200,176 205,120 295,120" /><path className="edge-path" d="M425,120 C500,120 480,260 570,260" /><path className="edge-path active" d="M635,290 C635,380 530,390 530,470" /><path className="edge-path" d="M425,120 C445,120 380,300 310,335" /><path className="edge-path" d="M310,365 C310,450 395,470 460,470" /></svg>
-        <div className="demo-node" style={{ left: '6%', top: '25%' }}><span className="node-ico"><CirclePlay size={13} /></span><strong>New request</strong><span>Voice or form</span></div>
-        <div className="demo-node voice" style={{ left: '35%', top: '14%' }}><span className="node-ico"><ScanText size={13} /></span><strong>Understand intent</strong><span>Scripted text · Nigeria</span></div>
-        <div className="demo-node vendor" style={{ right: '7%', top: '41%' }}><span className="node-ico"><Store size={13} /></span><strong>Vendor lookup</strong><span>Preferred · Rivers</span></div>
-        <div className="demo-node" style={{ left: '31%', top: '55%' }}><span className="node-ico"><GitBranch size={13} /></span><strong>Risk gateway</strong><span>Score &lt; 40</span></div>
-        <div className="demo-node end" style={{ left: '54%', bottom: '10%' }}><span className="node-ico"><Check size={13} /></span><strong>Create approval</strong><span>Finance approval stop</span></div>
-        <span className="cursor-person" style={{ left: '50%', top: '32%' }}><em>Ada</em></span>
+        <div className="canvas-toolbar" role="group" aria-label="Canvas preview controls">
+          <button type="button" className="canvas-tool" aria-label="Zoom in" onClick={() => setZoom((value) => Math.min(1.15, Number((value + 0.15).toFixed(2))))} disabled={zoom >= 1.15}><ZoomIn size={14} /></button>
+          <button type="button" className="canvas-tool" aria-label="Zoom out" onClick={() => setZoom((value) => Math.max(0.7, Number((value - 0.15).toFixed(2))))} disabled={zoom <= 0.7}><ZoomOut size={14} /></button>
+          <span className="canvas-zoom" aria-live="polite">{Math.round(zoom * 100)}%</span>
+          <button type="button" className={`canvas-tool run ${runState === 'running' ? 'is-running' : ''}`} aria-label={runLabel} onClick={handleRun}>{runState === 'running' ? <Pause size={14} /> : runState === 'approval' || runState === 'success' ? <Check size={14} /> : <Play size={14} />}</button>
+        </div>
+        <div className="workflow-canvas-inner" style={{ transform: `scale(${zoom})` }}>
+          <svg className="edge-svg" viewBox="0 0 800 590" preserveAspectRatio="none" aria-hidden="true">
+            <path className={`edge-path ${runStep >= 0 && runState !== 'idle' ? 'active' : ''}`} d="M115,176 C200,176 205,120 295,120" />
+            <path className={`edge-path ${runStep >= 1 && runState !== 'idle' ? 'active' : ''}`} d="M425,120 C500,120 480,260 570,260" />
+            <path className={`edge-path ${runStep >= 2 && runState !== 'idle' ? 'active' : ''}`} d="M635,290 C635,380 530,390 530,470" />
+            <path className={`edge-path ${runStep >= 2 && runState !== 'idle' ? 'active' : ''}`} d="M425,120 C445,120 380,300 310,335" />
+            <path className={`edge-path ${runStep >= 3 && runState !== 'idle' ? 'active' : ''}`} d="M310,365 C310,450 395,470 460,470" />
+          </svg>
+          <button type="button" className={nodeClass('start', 0)} style={{ left: '6%', top: '25%' }} onClick={() => setSelectedNode('start')}><span className="node-ico"><CirclePlay size={13} /></span><strong>New request</strong><span>Voice or form</span></button>
+          <button type="button" className={nodeClass('voice', 1)} style={{ left: '35%', top: '14%' }} onClick={() => setSelectedNode('voice')}><span className="node-ico"><ScanText size={13} /></span><strong>Understand intent</strong><span>Scripted text · Nigeria</span></button>
+          <button type="button" className={nodeClass('vendor', 2)} style={{ right: '7%', top: '41%' }} onClick={() => setSelectedNode('vendor')}><span className="node-ico"><Store size={13} /></span><strong>Vendor lookup</strong><span>Preferred · Rivers</span></button>
+          <button type="button" className={nodeClass('condition', 3)} style={{ left: '31%', top: '55%' }} onClick={() => setSelectedNode('condition')}><span className="node-ico"><GitBranch size={13} /></span><strong>Risk gateway</strong><span>Score &lt; 40</span></button>
+          <button type="button" className={nodeClass('approval', 4)} style={{ left: '54%', bottom: '10%' }} onClick={() => setSelectedNode('approval')}><span className="node-ico"><Check size={13} /></span><strong>Create approval</strong><span>Finance approval stop</span></button>
+          <span className="cursor-person" style={{ left: '50%', top: '32%' }}><em>Ada</em></span>
+        </div>
+        <div className={`workflow-run-status is-${runState}`} aria-live="polite">
+          <span><i style={{ transform: `scaleX(${runState === 'idle' ? 0 : (runStep + 1) / 5})` }} /></span>
+          <p>{statusCopy}</p>
+          {runState === 'approval' && <button type="button" onClick={handleRun}>Approve demo step</button>}
+        </div>
       </div>
       <aside className="workflow-props">
         <p className="panel-label">Properties</p>
-        <div className="prop-section"><strong>Vendor lookup</strong><label className="field-label">Location</label><input className="field" value="Port Harcourt, NG" readOnly /><label className="field-label">Vendor tier</label><input className="field" value="Preferred" readOnly /></div>
-        <div className="prop-section"><strong>Rules</strong><label className="field-label">Risk threshold</label><input className="field" value="Less than 40" readOnly /></div>
-        <button className="btn btn-dark workflow-save" disabled aria-label="Preview only: save is unavailable">Save node</button>
+        <div className="prop-section"><strong>{details.label}</strong><label className="field-label" htmlFor="preview-primary-field">{details.field}</label><input id="preview-primary-field" className="field" value={details.value} readOnly /></div>
+        <div className="prop-section"><strong>Graph contract</strong><label className="field-label" htmlFor="preview-policy-field">Preview boundary</label><input id="preview-policy-field" className="field" value="No external side effects" readOnly /></div>
+        <button type="button" className="btn btn-dark workflow-save" onClick={() => setSaveState('saving')} disabled={saveState === 'saving'}>{saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved in preview ✓' : 'Save node'}</button>
+        <p className="workflow-save-note" aria-live="polite">{saveState === 'saved' ? `${details.label} saved to this browser preview.` : 'Preview state only · open Canvas to persist a real draft.'}</p>
       </aside>
     </div>
   );

@@ -1,25 +1,118 @@
 'use client';
 
-import { FormEvent, useEffect, useRef, useState } from 'react';
-import { Bot, Mic, MicOff, Send, Sparkles, X } from 'lucide-react';
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from 'react';
+import { Bot, Send, Sparkles, X } from 'lucide-react';
 
-type Message = { role: 'assistant'|'user'; text: string };
+type Message = { role: 'assistant' | 'user'; text: string };
+
+const starterMessages = [
+  'Build a vendor onboarding flow',
+  'Add a finance approval gate',
+  'Show workflow examples',
+];
 
 export function ChatWidget() {
-  const [open,setOpen]=useState(false); const [voice,setVoice]=useState(false); const [typing,setTyping]=useState(false);
-  const [value,setValue]=useState(''); const [messages,setMessages]=useState<Message[]>([{role:'assistant',text:'Hello — I’m Ayo, a scripted Ase demo guide. Describe a workflow to preview the interaction.'}]);
-  const panel=useRef<HTMLDivElement>(null); const input=useRef<HTMLInputElement>(null); const launcher=useRef<HTMLButtonElement>(null); const hadOpened=useRef(false);
-  useEffect(()=>{const fn=(e:KeyboardEvent)=>{if(e.key==='Escape')setOpen(false)};document.addEventListener('keydown',fn);return()=>document.removeEventListener('keydown',fn)},[]);
-  useEffect(()=>{if(open){hadOpened.current=true;setTimeout(()=>input.current?.focus(),80)}else if(hadOpened.current){launcher.current?.focus()}},[open]);
-  function send(e?:FormEvent, preset?:string){e?.preventDefault();const text=(preset??value).trim();if(!text)return;setMessages(m=>[...m,{role:'user',text}]);setValue('');setTyping(true);setTimeout(()=>{setTyping(false);setMessages(m=>[...m,{role:'assistant',text:text.toLowerCase().includes('vendor')?'In this scripted example, I would propose a Vendor Lookup node and a risk threshold for your review.':'This scripted response can hand you off to Visual Canvas for review; it has not executed an agent or external tool.'}])},850)}
-  return <>
-    {open && <div className="chat-panel" role="dialog" aria-modal="true" aria-label="Ase assistant" ref={panel}>
-      <div className="chat-head"><span className="agent-avatar"><Bot size={19}/></span><div className="chat-head-copy"><strong>Ayo · Ase guide</strong><span>Scripted interface demo · no LLM connected</span></div><button onClick={()=>setVoice(v=>!v)} aria-label={voice?'Disable voice visual preview':'Enable voice visual preview'}>{voice?<Mic size={16}/>:<MicOff size={16}/>}</button><button onClick={()=>setOpen(false)} aria-label="Close assistant"><X size={17}/></button></div>
-      <div className="chat-badges"><span className="tag tag-cyan">No media transport</span><span className="tag tag-purple">Scripted replies</span>{voice&&<span className="tag tag-green"><span className="mini-wave">{[5,12,8,15,7].map((h,i)=><i key={i} style={{'--m':`${h}px`} as React.CSSProperties}/>)}</span> Visual preview</span>}</div>
-      <div className="chat-messages" aria-live="polite">{messages.map((m,i)=><div className={`msg ${m.role==='user'?'user':''}`} key={i}>{m.text}</div>)}{typing&&<div className="msg typing" aria-label="Assistant is typing"><i/><i/><i/></div>}</div>
-      <div className="chat-suggest"><button onClick={()=>send(undefined,'Build a vendor onboarding flow')}>Vendor onboarding</button><button onClick={()=>send(undefined,'Connect Gmail to Notion')}>Connect my tools</button><button onClick={()=>send(undefined,'Show workflow examples')}>See examples</button></div>
-      <form className="chat-input" onSubmit={send}><input ref={input} value={value} onChange={e=>setValue(e.target.value)} placeholder="Describe a workflow…" aria-label="Message"/><button aria-label="Send message"><Send size={15}/></button></form>
-    </div>}
-    <button ref={launcher} className="chat-launcher" aria-expanded={open} aria-label={open?'Close Ase assistant':'Talk to Ase assistant'} onClick={()=>setOpen(v=>!v)}>{open?<X size={21}/>:<><Sparkles size={22}/><span className="launcher-badge"/></>}</button>
-  </>;
+  const [open, setOpen] = useState(false);
+  const [typing, setTyping] = useState(false);
+  const [value, setValue] = useState('');
+  const [messages, setMessages] = useState<Message[]>([
+    { role: 'assistant', text: 'Hello — I’m the scripted Ase preview. Describe a workflow and I’ll show how a guided handoff could work.' },
+  ]);
+  const panel = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const launcher = useRef<HTMLButtonElement>(null);
+  const hadOpened = useRef(false);
+
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape' && open) setOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open]);
+
+  useEffect(() => {
+    let focusTimer: number | undefined;
+    if (open) {
+      hadOpened.current = true;
+      focusTimer = window.setTimeout(() => input.current?.focus(), 60);
+    } else if (hadOpened.current) {
+      launcher.current?.focus();
+    }
+    return () => { if (focusTimer) window.clearTimeout(focusTimer); };
+  }, [open]);
+
+  function containFocus(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Tab') return;
+    const targets = panel.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled])');
+    if (!targets?.length) return;
+    const first = targets[0];
+    const last = targets[targets.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  function send(event?: FormEvent, preset?: string) {
+    event?.preventDefault();
+    const text = (preset ?? value).trim();
+    if (!text || typing) return;
+    setMessages((current) => [...current, { role: 'user', text }]);
+    setValue('');
+    setTyping(true);
+    window.setTimeout(() => {
+      setTyping(false);
+      setMessages((current) => [...current, {
+        role: 'assistant',
+        text: text.toLowerCase().includes('vendor')
+          ? 'In this scripted preview, I would place a Vendor Lookup node before an explicit finance approval gate. Open Visual Canvas to build and review the graph.'
+          : 'This scripted response can hand you off to Visual Canvas for review. It has not run an agent, called an integration, or changed an external system.',
+      }]);
+    }, 750);
+  }
+
+  return (
+    <>
+      {open && <div className="chat-backdrop" aria-hidden="true" onPointerDown={() => setOpen(false)} />}
+      {open && (
+        <div className="chat-panel" id="ase-preview-panel" role="dialog" aria-modal="true" aria-labelledby="ase-preview-title" ref={panel} onKeyDown={containFocus}>
+          <div className="chat-head">
+            <span className="agent-avatar"><Bot size={19} /></span>
+            <div className="chat-head-copy"><strong id="ase-preview-title">Ase workflow guide</strong><span><i /> Ready · scripted preview</span></div>
+            <button type="button" onClick={() => setOpen(false)} aria-label="Close Ask Ase"><X size={17} /></button>
+          </div>
+          <div className="chat-disclosure"><Sparkles size={14} /><p><strong>Interaction preview only.</strong> Replies are scripted; no LLM, microphone, integration, or autonomous execution is connected here.</p></div>
+          <div className="chat-messages" aria-live="polite">
+            {messages.map((message, index) => <div className={`msg ${message.role === 'user' ? 'user' : ''}`} key={`${message.role}-${index}`}>{message.text}</div>)}
+            {typing && <div className="msg typing" aria-label="Ase preview is responding"><i /><i /><i /></div>}
+          </div>
+          <div className="chat-suggest" aria-label="Example prompts">
+            {starterMessages.map((message) => <button type="button" key={message} onClick={() => send(undefined, message)} disabled={typing}>{message}</button>)}
+          </div>
+          <form className="chat-input" onSubmit={send}>
+            <input ref={input} value={value} onChange={(event) => setValue(event.target.value)} placeholder="Describe a workflow…" aria-label="Describe a workflow" />
+            <button type="submit" aria-label="Send message" disabled={!value.trim() || typing}><Send size={15} /></button>
+          </form>
+          <a className="chat-canvas-link" href="/app/canvas">Continue in Visual Canvas →</a>
+        </div>
+      )}
+      <button
+        type="button"
+        ref={launcher}
+        className="chat-launcher"
+        aria-expanded={open}
+        aria-controls="ase-preview-panel"
+        aria-label={open ? 'Close Ask Ase' : 'Open Ask Ase scripted preview'}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="launcher-ready" aria-hidden="true" />
+        <span className="launcher-copy"><small>Ready</small><strong>Ask Ase</strong></span>
+        {open ? <X size={18} /> : <Sparkles size={18} />}
+      </button>
+    </>
+  );
 }
