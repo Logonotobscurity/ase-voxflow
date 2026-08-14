@@ -1,78 +1,328 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Activity, ArrowDown, ArrowRight, AudioLines, Bot, Boxes, Braces, Check, ChevronRight, CirclePlay, Code2, Copy, Database, GitBranch, Globe2, Languages, LockKeyhole, MessageSquareText, Mic2, Network, Play, Radio, ScanText, ShieldCheck, ShoppingCart, SlidersHorizontal, Sparkles, Store, Users, WandSparkles, Workflow, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+  ArrowRight,
+  AudioLines,
+  BadgeCheck,
+  Bot,
+  Boxes,
+  Check,
+  ChevronRight,
+  CirclePlay,
+  GitBranch,
+  Landmark,
+  Mic2,
+  PackageCheck,
+  Play,
+  ScanText,
+  ShieldCheck,
+  ShoppingCart,
+  Store,
+  Truck,
+  Users,
+  Workflow,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import { Header } from './Header';
 import { Footer } from './Footer';
 import { ChatWidget } from './ChatWidget';
 import { VideoPreview } from './VideoPreview';
+import { AseSystemDiagram } from './AseSystemDiagram';
 
-const Fade = ({children, delay=0, className=''}:{children:React.ReactNode;delay?:number;className?:string}) => <motion.div className={className} initial={{opacity:0,y:24}} whileInView={{opacity:1,y:0}} viewport={{once:true,margin:'-70px'}} transition={{duration:.55,delay}}>{children}</motion.div>;
-const spectrum = [20,44,70,34,92,58,108,46,122,75,55,95,42,112,70,32,83,49,103,64,28,72,39,88,52,33,62];
+const Fade = ({ children, delay = 0, className = '' }: { children: React.ReactNode; delay?: number; className?: string }) => (
+  <motion.div
+    className={className}
+    initial={{ opacity: 0, y: 16 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    viewport={{ once: true, margin: '-60px' }}
+    transition={{ duration: 0.18, delay }}
+  >
+    {children}
+  </motion.div>
+);
 
-export function HomePage(){
-  const [headline,setHeadline]=useState(0); const [vendorTab,setVendorTab]=useState('Registration'); const [viz,setViz]=useState('Aura');
-  useEffect(()=>{const id=setInterval(()=>setHeadline(h=>(h+1)%3),4200);return()=>clearInterval(id)},[]);
-  const lines=['When processes work, enterprise AI works.','From voice to fully running workflows.','Blueprints for how your business actually runs.'];
-  return <>
-    <Header/>
-    <main>
-      <section className="hero">
-        <div className="container hero-grid">
-          <div className="hero-copy">
-            <motion.div className="hero-kicker" initial={{opacity:0,y:-10}} animate={{opacity:1,y:0}}><span>New</span> Voice-to-workflow in eight African languages <ChevronRight size={12}/></motion.div>
-            <motion.h1 key={headline} initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} transition={{duration:.45}}>{headline===0?<>When processes work, <span className="gradient-word">enterprise AI works.</span></>:headline===1?<>From voice to fully <span className="gradient-word">running workflows.</span></>:<>Blueprints for how your <span className="gradient-word">business runs.</span></>}</motion.h1>
-            <p>Describe the process, and Ase assembles the automation — triggers, conditions and 60+ integrations wired together in a visual canvas.</p>
-            <div className="hero-actions"><Link href="/platform" className="btn btn-primary">Get started <ArrowRight size={15}/></Link><Link href="/app/voice" className="btn btn-light"><CirclePlay size={15}/> Join a live demo</Link><Link href="/marketplace" className="btn btn-ghost">Explore marketplace</Link></div>
-            <div className="hero-note"><span><i/> No credit card</span><span><i/> Setup in minutes</span><span><i/> Built for African operations</span></div>
+const spectrum = [20, 44, 70, 34, 92, 58, 108, 46, 122, 75, 55, 95, 42, 112, 70, 32, 83, 49, 103, 64, 28, 72, 39];
+
+const useCases = {
+  vendors: {
+    label: 'Vendor operations',
+    title: 'Move from supplier request to approved purchase order.',
+    copy: 'Ase verifies documents, scores risk, routes approvals and keeps every handoff visible in one workflow.',
+    icon: Store,
+    stat: '68%',
+    statLabel: 'less manual vendor follow-up',
+    steps: ['Capture request', 'Verify supplier', 'Route approval', 'Monitor delivery'],
+    href: '/app/vendors',
+  },
+  finance: {
+    label: 'Finance controls',
+    title: 'Make approvals faster without making controls weaker.',
+    copy: 'Encode thresholds, segregation of duties and exception paths directly into an auditable operating flow.',
+    icon: Landmark,
+    stat: '3.1×',
+    statLabel: 'faster approval cycles',
+    steps: ['Read invoice', 'Match policy', 'Escalate exception', 'Post decision'],
+    href: '/solutions',
+  },
+  field: {
+    label: 'Field operations',
+    title: 'Keep work moving when the network does not.',
+    copy: 'Capture voice and task updates locally, queue them safely and synchronize the full record when teams reconnect.',
+    icon: Truck,
+    stat: '99.2%',
+    statLabel: 'tasks captured across network states',
+    steps: ['Receive job', 'Work offline', 'Capture evidence', 'Sync outcome'],
+    href: '/solutions',
+  },
+  service: {
+    label: 'Customer service',
+    title: 'Turn every conversation into the next best action.',
+    copy: 'Understand multilingual requests, retrieve context and trigger a governed workflow without forcing customers through menus.',
+    icon: Users,
+    stat: '8',
+    statLabel: 'African languages in one experience',
+    steps: ['Listen', 'Understand intent', 'Resolve or route', 'Confirm action'],
+    href: '/app/voice',
+  },
+} as const;
+
+type UseCaseKey = keyof typeof useCases;
+
+export function HomePage() {
+  const [activeCase, setActiveCase] = useState<UseCaseKey>('vendors');
+  const current = useCases[activeCase];
+  const CurrentIcon = current.icon;
+
+  return (
+    <>
+      <Header />
+      <main>
+        <section className="hero">
+          <div className="container hero-grid">
+            <div className="hero-copy">
+              <motion.div className="hero-kicker" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
+                <span>New</span> Voice-to-workflow for African operations <ChevronRight size={13} />
+              </motion.div>
+              <motion.h1 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
+                Make the way your business works <span className="gradient-word">runnable.</span>
+              </motion.h1>
+              <p>
+                Ase turns operational knowledge into visible, governed workflows. Describe the work, shape it on the VOXFLOW canvas, then run it across people, agents and systems.
+              </p>
+              <div className="hero-actions">
+                <Link href="/app/canvas" className="btn btn-dark">Build a workflow <ArrowRight size={16} /></Link>
+                <Link href="/platform" className="btn btn-light"><CirclePlay size={16} /> See how it works</Link>
+              </div>
+              <div className="hero-note" aria-label="Product benefits">
+                <span><i /> Start without a card</span>
+                <span><i /> Keep a complete audit trail</span>
+                <span><i /> Work across network conditions</span>
+              </div>
+            </div>
+
+            <motion.div className="hero-visual" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.18, delay: 0.04 }}>
+              <div className="orb-stage" aria-hidden="true">
+                <div className="orb-glow" />
+                <div className="orbit">
+                  <span className="integration-chip chip-1">VOICE</span>
+                  <span className="integration-chip chip-2">SAP</span>
+                  <span className="integration-chip chip-3">PAY</span>
+                  <span className="integration-chip chip-4">CRM</span>
+                  <span className="integration-chip chip-5">OPS</span>
+                </div>
+                <div className="orb"><div className="orb-lines" /><span className="orb-core">ASE</span></div>
+              </div>
+              <div className="floating-card snippet-card">
+                <span className="float-label">Live workflow</span>
+                <div className="code-row"><i className="code-dot" /> voice.request</div>
+                <div className="code-row"><i className="code-dot amber" /> risk.score &lt; 40</div>
+                <div className="code-row"><i className="code-dot green" /> finance.approve</div>
+              </div>
+              <div className="floating-card ai-card">
+                <div className="ai-top"><span className="ai-icon"><Bot size={15} /></span>Ase assist</div>
+                <p>I added a control gate before the purchase order is created.</p>
+              </div>
+            </motion.div>
           </div>
-          <motion.div className="hero-visual" initial={{opacity:0,scale:.94}} animate={{opacity:1,scale:1}} transition={{duration:.8,delay:.15}} aria-label="Ase integration network visualization">
-            <div className="orb-stage"><div className="orb-glow"/><div className="orbit"><span className="integration-chip chip-1">SAP</span><span className="integration-chip chip-2">SLK</span><span className="integration-chip chip-3">GM</span><span className="integration-chip chip-4">SF</span><span className="integration-chip chip-5">NGN</span></div><div className="orb"><div className="orb-lines"/></div></div>
-            <div className="floating-card snippet-card"><span className="float-label">Workflow assembled</span><div className="code-row"><i className="code-dot"/>voice.trigger(&quot;new vendor&quot;)</div><div className="code-row"><i className="code-dot" style={{background:'#f97316'}}/>vendor.risk_score &lt; 40</div><div className="code-row"><i className="code-dot" style={{background:'#22c55e'}}/>approval.route(&quot;finance&quot;)</div></div>
-            <div className="floating-card ai-card"><div className="ai-top"><span className="ai-icon"><Sparkles size={14}/></span>Ase AI assist</div><p>I found three control gaps and added an approval branch before payment.</p></div>
-          </motion.div>
-        </div><div className="scroll-cue">Explore <ArrowDown size={14}/></div>
-      </section>
+        </section>
 
-      <section className="proof-strip"><div className="container proof-inner"><p>Trusted by operations, IT and automation teams at modern enterprises.</p><div className="logo-row"><span className="fake-logo"><i/>ACCESS</span><span className="fake-logo"><i/>FLUTTERWAVE</span><span className="fake-logo"><i/>M-KOPA</span><span className="fake-logo"><i/>SAFARICOM</span><span className="fake-logo"><i/>DANGOTE</span></div></div></section>
-
-      <section className="section">
-        <div className="container"><Fade className="section-head"><div><p className="eyebrow"><span className="eyebrow-dot"/> One automation fabric</p><h2 className="h2">Your process is the product.</h2></div><p className="lede">Give every team a shared language for turning operational knowledge into reliable, governed automation.</p></Fade>
-          <div className="card-grid">
-            {[['canvas','Visual workflow canvas','Flow is the code. Make every decision inspectable, debuggable and easy to onboard.'],['voice','Voice to workflow','Say “add a Salesforce trigger” or “connect Gmail to Notion” and watch the draft appear.'],['boxes','Deep integration library','Connect 60+ enterprise, cloud and local payment systems without stitching APIs by hand.'],['lock','Enterprise control','Versioning, audit trails, RBAC and environment-aware deployments from day one.']].map(([icon,title,text],i)=>{const I=icon==='canvas'?Workflow:icon==='voice'?Mic2:icon==='boxes'?Boxes:LockKeyhole;return <Fade delay={i*.07} key={title}><div className="value-card"><span className="card-icon"><I size={20}/></span><h3>{title}</h3><p>{text}</p></div></Fade>})}
+        <section className="proof-strip" aria-label="Product capability summary">
+          <div className="container proof-inner">
+            <p>One operating layer for teams building across African markets.</p>
+            <div className="logo-row">
+              {['VOICE', 'WORKFLOWS', 'VENDORS', 'AGENTS', 'CONTROLS'].map((label, index) => (
+                <span className="fake-logo" key={label}><i>{String(index + 1).padStart(2, '0')}</i>{label}</span>
+              ))}
+            </div>
           </div>
-          <Fade><div className="stats-ribbon"><div className="stat"><strong>1,100+</strong><span>automations discovered</span></div><div className="stat"><strong>60+</strong><span>production-ready nodes</span></div><div className="stat"><strong>3×</strong><span>faster workflow launches</span></div><div className="stat"><strong>4.8/5</strong><span>marketplace rating</span></div></div></Fade>
-        </div>
-      </section>
+        </section>
 
-      <section className="section section-dark voice-section" id="voice">
-        <div className="container voice-grid">
-          <Fade><p className="eyebrow" style={{color:'#67e8f9'}}><span className="eyebrow-dot"/> Voice-first by design</p><h2 className="h2">Speak in context.<br/>Build in real time.</h2><p className="lede" style={{color:'#9aa4b5'}}>Ase understands operations vocabulary, accents and the business context behind every instruction — even on unreliable networks.</p><div className="language-list">{['EN','Swahili','Yorùbá','Hausa','Amharic','Zulu','FR','PT'].map(x=><span className="lang" key={x}>{x}</span>)}</div></Fade>
-          <Fade delay={.1}><div className="voice-console"><div className="console-top"><span className="status-line"><i className="live-dot"/> Listening · Yorùbá + English</span><span className="tag tag-cyan">WebAudio live</span></div><div className="spectrum">{spectrum.map((h,i)=><span key={i} style={{'--h':`${h}px`,'--i':i} as React.CSSProperties}/>)}</div><div className="transcript"><span className="transcript-label">Live transcript</span><p>“Find preferred packaging suppliers in Lagos, check their risk score, then create a purchase approval for ₦2.5 million.”<i className="cursor"/></p></div><div className="console-actions"><button className="btn btn-icon btn-ghost" aria-label="Language settings"><Languages size={17}/></button><button className="mic-orb" aria-label="Stop listening"><Mic2 size={23}/></button><button className="btn btn-icon btn-ghost" aria-label="Voice settings"><SlidersHorizontal size={17}/></button></div><div className="voice-capabilities"><div className="mini-cap"><strong>Accent-aware STT</strong><span>Whisper large-v3 tuned for noisy environments.</span></div><div className="mini-cap"><strong>Natural responses</strong><span>Low-latency multilingual neural speech.</span></div><div className="mini-cap"><strong>Barge-in ready</strong><span>Interrupt, correct and continue naturally.</span></div></div></div></Fade>
-        </div>
-      </section>
+        <section className="section section-paper">
+          <div className="container">
+            <Fade className="section-head">
+              <div><p className="eyebrow"><span className="eyebrow-dot" /> The operating fabric</p><h2 className="h2">One source of truth.<br />Every handoff in view.</h2></div>
+              <p className="lede">VOXFLOW connects what people say, what your rules require and what your systems need to do next.</p>
+            </Fade>
+            <div className="system-story-grid">
+              <Fade className="system-diagram-wrap"><AseSystemDiagram /></Fade>
+              <div className="system-principles">
+                {[
+                  ['01', 'Capture the real process', 'Start with a voice instruction, an event or a proven blueprint—not an empty technical canvas.', Mic2],
+                  ['02', 'Make decisions inspectable', 'Conditions, people, agent actions and system calls stay visible and versioned.', GitBranch],
+                  ['03', 'Run with control', 'Test, approve, execute and measure from the same governed workflow.', ShieldCheck],
+                ].map(([n, title, copy, Icon], index) => (
+                  <Fade delay={index * 0.04} key={title as string}>
+                    <article className="principle-row">
+                      <span className="principle-number">{n as string}</span>
+                      <span className="principle-icon"><Icon size={19} /></span>
+                      <div><h3>{title as string}</h3><p>{copy as string}</p></div>
+                    </article>
+                  </Fade>
+                ))}
+                <Link href="/platform" className="text-link">Explore the complete platform <ArrowRight size={15} /></Link>
+              </div>
+            </div>
+            <Fade><div className="stats-ribbon"><div className="stat"><strong>60+</strong><span>integration nodes</span></div><div className="stat"><strong>8</strong><span>African languages</span></div><div className="stat"><strong>3×</strong><span>faster launches</span></div><div className="stat"><strong>1</strong><span>auditable operating view</span></div></div></Fade>
+          </div>
+        </section>
 
-      <section className="section section-soft" id="canvas"><div className="container"><Fade className="section-head"><div><p className="eyebrow"><span className="eyebrow-dot"/> Visual workflow layer</p><h2 className="h2">See every handoff.<br/>Shape every outcome.</h2></div><p className="lede">A collaborative BPMN canvas where business teams and engineers can build together — without losing control.</p></Fade>
-        <Fade><WorkflowPreview/></Fade><div className="workflow-cta"><Link className="btn btn-primary" href="/platform">Open Visual Canvas <ArrowRight size={15}/></Link></div></div></section>
+        <section className="section section-ink">
+          <div className="container">
+            <Fade className="section-head">
+              <div><p className="eyebrow eyebrow-light"><span className="eyebrow-dot" /> Start with an outcome</p><h2 className="h2">Choose the work.<br />Ase maps the route.</h2></div>
+              <p className="lede">Explore a complete journey instead of a disconnected list of features.</p>
+            </Fade>
+            <div className="outcome-tabs" role="tablist" aria-label="Solution journeys">
+              {(Object.entries(useCases) as [UseCaseKey, typeof useCases[UseCaseKey]][]).map(([key, item]) => (
+                <button key={key} role="tab" aria-selected={activeCase === key} className={`outcome-tab ${activeCase === key ? 'active' : ''}`} onClick={() => setActiveCase(key)}>
+                  <item.icon size={18} /> {item.label}
+                </button>
+              ))}
+            </div>
+            <div className="outcome-panel" role="tabpanel">
+              <div className="outcome-copy">
+                <span className="outcome-icon"><CurrentIcon size={25} /></span>
+                <h3>{current.title}</h3>
+                <p>{current.copy}</p>
+                <Link href={current.href} className="btn btn-amber">Explore this solution <ArrowRight size={15} /></Link>
+              </div>
+              <div className="outcome-route" aria-label={`${current.label} workflow stages`}>
+                {current.steps.map((step, index) => (
+                  <div className="route-step" key={step}><span>{String(index + 1).padStart(2, '0')}</span><strong>{step}</strong>{index < current.steps.length - 1 && <i aria-hidden="true" />}</div>
+                ))}
+              </div>
+              <div className="outcome-stat"><strong>{current.stat}</strong><span>{current.statLabel}</span></div>
+            </div>
+          </div>
+        </section>
 
-      <section className="section"><div className="container vendor-layout"><Fade><p className="eyebrow"><span className="eyebrow-dot"/> Business operations</p><h2 className="h2">Vendor intelligence,<br/>not vendor admin.</h2><p className="lede">One operational view for registration, sourcing, purchase approvals, contracts, performance and risk.</p><div className="module-tabs">{['Registration','Performance','Assessment','Purchase','Contracts','Risk'].map(t=><button className={`module-tab ${vendorTab===t?'active':''}`} onClick={()=>setVendorTab(t)} key={t}>{t}</button>)}</div><div className="voice-callout"><Mic2 size={20}/><p><strong>Try a voice command</strong>“Show my preferred logistics vendors in Lagos.”</p></div></Fade>
-        <Fade delay={.1}><VendorBoard tab={vendorTab}/></Fade></div></section>
+        <section className="section section-paper voice-section" id="voice">
+          <div className="container voice-grid">
+            <Fade>
+              <p className="eyebrow"><span className="eyebrow-dot" /> Voice-first by design</p>
+              <h2 className="h2">Speak naturally.<br />Build precisely.</h2>
+              <p className="lede">Ase understands business vocabulary, regional accents and the context behind an instruction—even when connectivity is unreliable.</p>
+              <div className="language-list">{['English', 'Kiswahili', 'Yorùbá', 'Hausa', 'Amharic', 'isiZulu', 'French', 'Portuguese'].map((x) => <span className="lang" key={x}>{x}</span>)}</div>
+              <Link className="text-link" href="/app/voice">Open Voice Studio <ArrowRight size={15} /></Link>
+            </Fade>
+            <Fade delay={0.05}>
+              <div className="voice-console">
+                <div className="console-top"><span className="status-line"><i className="live-dot" /> Listening · English (Nigeria)</span><span className="tag tag-amber">LIVE</span></div>
+                <div className="spectrum">{spectrum.map((h, i) => <span key={i} style={{ '--h': `${h}px`, '--i': i } as React.CSSProperties} />)}</div>
+                <div className="transcript"><span className="transcript-label">Live transcript</span><p>“Find preferred packaging suppliers in Port Harcourt, check risk, then route a ₦2.5 million approval.”<i className="cursor" /></p></div>
+                <div className="console-actions"><button className="mic-orb" aria-label="Pause listening"><Mic2 size={23} /></button></div>
+                <div className="voice-capabilities"><div className="mini-cap"><strong>Accent-aware</strong><span>Understands real operating environments.</span></div><div className="mini-cap"><strong>Offline-ready</strong><span>Queues safely, then synchronizes.</span></div><div className="mini-cap"><strong>Action-bound</strong><span>Every command maps to a governed step.</span></div></div>
+              </div>
+            </Fade>
+          </div>
+        </section>
 
-      <section className="section section-dark"><div className="container personality"><Fade><p className="eyebrow" style={{color:'#67e8f9'}}><span className="eyebrow-dot"/> Agent UI system</p><h2 className="h2">Give your agent a visual personality.</h2><p className="lede" style={{color:'#9aa4b5'}}>Five responsive visualizer styles, each adapting to connecting, listening, speaking and thinking states.</p><div className="style-pills">{['Aura','Wave','Radial','Grid','Bar'].map(x=><button key={x} onClick={()=>setViz(x)} className={`style-pill ${viz===x?'active':''}`}>{x}</button>)}</div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><span className="tag tag-cyan">State · listening</span><span className="tag tag-purple">Hue · #1FD5F9</span></div></Fade><Fade><div className="personality-preview"><div className="console-top"><span className="status-line"><i className="live-dot"/> {viz} visualizer · listening</span><span className="tag">Live preview</span></div><div className="aura"><div className="aura-center"/></div><div className="preview-code"><span>&lt;AgentAudioVisualizer{viz}/&gt;</span><button className="copy-btn" aria-label="Copy code"><Copy size={14}/></button></div></div></Fade></div></section>
+        <section className="section section-cream" id="canvas">
+          <div className="container">
+            <Fade className="section-head">
+              <div><p className="eyebrow"><span className="eyebrow-dot" /> Visual Canvas</p><h2 className="h2">Flow is the interface.</h2></div>
+              <p className="lede">Business teams can understand it. Technical teams can extend it. Everyone can see what happens next.</p>
+            </Fade>
+            <Fade><WorkflowPreview /></Fade>
+            <div className="workflow-cta"><Link className="btn btn-dark" href="/app/canvas">Open the canvas <ArrowRight size={15} /></Link></div>
+          </div>
+        </section>
 
-      <section className="section section-soft"><div className="container"><Fade className="section-head"><div><p className="eyebrow"><span className="eyebrow-dot"/> Marketplace</p><h2 className="h2">Start with proven intelligence.</h2></div><p className="lede">Install production-ready agents, connectors and process blueprints. Adapt them to how your organization works.</p></Fade><div className="market-split"><Fade><h3 style={{fontSize:25,margin:'0 0 12px'}}>Discover. Adapt. Publish.</h3><p className="lede" style={{fontSize:15}}>From SAP connectors and claims agents to community-built logistics workflows, the Ase marketplace helps you move from idea to value quickly.</p><Link className="btn btn-primary" href="/marketplace">Explore marketplace <ArrowRight size={15}/></Link></Fade><div className="market-card-grid">{[['Agent Catalog','Autonomous agents for sales, service and operations',Bot,'42 agents'],['Automation Ops','Reusable workflows for finance, HR and logistics',Workflow,'68 templates'],['Process Mining','Find bottlenecks before automating the wrong thing',Activity,'24 tools'],['Integration Services','Enterprise and local connectors, monitored end-to-end',Braces,'60+ nodes']].map(([title,text,Icon,count],i)=><Fade delay={i*.06} key={title as string}><div className="market-card"><div className="market-card-top"><span className="market-card-icon"><Icon size={17}/></span><ArrowRight size={15}/></div><h3>{title as string}</h3><p>{text as string}</p><span className="tag tag-purple">{count as string}</span></div></Fade>)}</div></div></div></section>
+        <section className="section section-paper">
+          <div className="container market-split">
+            <Fade>
+              <p className="eyebrow"><span className="eyebrow-dot" /> Marketplace</p>
+              <h2 className="h2">Do not start from zero.</h2>
+              <p className="lede">Install a proven agent, connector or process blueprint, then adapt it to your controls and market.</p>
+              <Link className="btn btn-dark" href="/marketplace">Browse the marketplace <ArrowRight size={15} /></Link>
+            </Fade>
+            <div className="market-card-grid">
+              {[
+                ['Agents', 'Service and operations intelligence', Bot, '42 ready'],
+                ['Blueprints', 'Reusable, governed process flows', Workflow, '68 flows'],
+                ['Connectors', 'Enterprise and local systems', Boxes, '60+ nodes'],
+                ['Vendor Ops', 'Sourcing, risk and purchasing', PackageCheck, '6 modules'],
+              ].map(([title, text, Icon, count], index) => (
+                <Fade delay={index * 0.04} key={title as string}>
+                  <Link href="/marketplace" className="market-card">
+                    <div className="market-card-top"><span className="market-card-icon"><Icon size={18} /></span><ArrowRight size={16} /></div>
+                    <h3>{title as string}</h3><p>{text as string}</p><span className="tag tag-amber">{count as string}</span>
+                  </Link>
+                </Fade>
+              ))}
+            </div>
+          </div>
+        </section>
 
-      <section className="section"><div className="container"><Fade><div style={{textAlign:'center',maxWidth:730,margin:'0 auto'}}><p className="eyebrow"><span className="eyebrow-dot"/> One clear journey</p><h2 className="h2">From idea to impact.</h2><p className="lede">A governed path that works for a single automation and scales to an enterprise program.</p></div></Fade><div className="journey">{[['01','Discover','Mine your real process and identify high-value opportunities.'],['02','Configure','Assemble the first workflow by voice or from a blueprint.'],['03','Automate','Test, approve and deploy with controls baked in.'],['04','Scale','Measure outcomes, reuse patterns and improve continuously.']].map(([n,t,p],i)=><Fade delay={i*.08} key={n}><div className="journey-step"><span className="step-num">{n}</span><h3>{t}</h3><p>{p}</p></div></Fade>)}</div></div></section>
-
-      <section className="section section-soft"><div className="container"><Fade className="section-head"><div><p className="eyebrow"><span className="eyebrow-dot"/> Customer stories</p><h2 className="h2">Built around how work really happens.</h2></div></Fade><div className="testimonials"><Fade><div className="quote-card"><span className="quote-mark">“</span><blockquote>Ase turned our process maps into live automations. We now prototype workflows in voice and have IT harden them in the same canvas.</blockquote><div className="quote-person"><span className="quote-avatar"/><span><strong style={{display:'block',color:'#303745'}}>Ama Mensah</strong>Head of Operations · Finserve Africa</span></div></div></Fade><Fade delay={.08}><div className="quote-card"><span className="quote-mark">“</span><blockquote>Non-technical teams can finally describe what they need, and the system builds the first draft of the workflow for them.</blockquote><div className="quote-person"><span className="quote-avatar"/><span><strong style={{display:'block',color:'#303745'}}>Tunde Balogun</strong>Director of Transformation · Meridian Group</span></div></div></Fade></div><div className="dictionary">{[['Sacco','A member-owned savings and credit cooperative.'],['Esusu','A rotating savings and credit association common in West Africa.'],['Stokvel','A South African invitation-only savings or investment club.'],['Ubuntu','A philosophy of shared humanity and collective success.'],['Chama','A Kenyan informal investment or savings group.']].map(([t,d])=><button key={t} data-definition={d}>{t}</button>)}</div></div></section>
-
-      <section className="section section-dark" style={{textAlign:'center'}}><div className="container"><Fade><p className="eyebrow" style={{color:'#67e8f9'}}><span className="eyebrow-dot"/> Ready when you are</p><h2 className="h2" style={{maxWidth:830,margin:'0 auto'}}>Build the operating system your business deserves.</h2><p className="lede" style={{maxWidth:630,margin:'22px auto 30px',color:'#9aa4b5'}}>Start with one workflow. Scale to every process, team and market.</p><div className="hero-actions" style={{justifyContent:'center'}}><Link className="btn btn-primary" href="/platform">Start building free <ArrowRight size={15}/></Link><Link className="btn btn-ghost" href="/company">Talk to an expert</Link></div></Fade></div></section>
-    </main><Footer/><ChatWidget/><VideoPreview/>
-  </>;
+        <section className="section section-ink closing-section">
+          <div className="container">
+            <Fade>
+              <p className="eyebrow eyebrow-light"><span className="eyebrow-dot" /> A clearer next step</p>
+              <h2 className="h2">Take one process.<br />Make it work end to end.</h2>
+              <p className="lede">Build the first draft now, or explore the platform architecture with your team.</p>
+              <div className="hero-actions"><Link className="btn btn-amber" href="/app/canvas">Start building <ArrowRight size={15} /></Link><Link className="btn btn-outline-light" href="/company">Talk to a solutions expert</Link></div>
+            </Fade>
+          </div>
+        </section>
+      </main>
+      <Footer />
+      <ChatWidget />
+      <VideoPreview />
+    </>
+  );
 }
 
-function WorkflowPreview(){return <div className="workflow-shell"><aside className="workflow-sidebar"><p className="panel-label">Node palette</p><div className="node-chip"><i/>Start trigger</div><div className="node-chip voice"><i/>Voice command</div><div className="node-chip"><i/>Condition</div><div className="node-chip vendor"><i/>Vendor lookup</div><div className="node-chip"><i/>API request</div><div className="node-chip"><i/>Send approval</div></aside><div className="workflow-canvas"><div className="canvas-toolbar"><button className="canvas-tool" aria-label="Zoom in"><ZoomIn size={14}/></button><button className="canvas-tool" aria-label="Zoom out"><ZoomOut size={14}/></button><button className="canvas-tool" aria-label="Run workflow"><Play size={14}/></button></div><svg className="edge-svg" viewBox="0 0 800 590" preserveAspectRatio="none"><path className="edge-path active" d="M115,176 C200,176 205,120 295,120"/><path className="edge-path" d="M425,120 C500,120 480,260 570,260"/><path className="edge-path active" d="M635,290 C635,380 530,390 530,470"/><path className="edge-path" d="M425,120 C445,120 380,300 310,335"/><path className="edge-path" d="M310,365 C310,450 395,470 460,470"/></svg><div className="demo-node" style={{left:'6%',top:'25%'}}><span className="node-ico"><CirclePlay size={13}/></span><strong>New request</strong><span>Form submitted</span></div><div className="demo-node voice" style={{left:'35%',top:'14%'}}><span className="node-ico"><Mic2 size={13}/></span><strong>Voice intent</strong><span>Whisper STT</span></div><div className="demo-node vendor" style={{right:'7%',top:'41%'}}><span className="node-ico"><Store size={13}/></span><strong>Vendor lookup</strong><span>Preferred · Lagos</span></div><div className="demo-node" style={{left:'31%',top:'55%'}}><span className="node-ico"><GitBranch size={13}/></span><strong>Risk gateway</strong><span>Score &lt; 40</span></div><div className="demo-node end" style={{left:'54%',bottom:'10%'}}><span className="node-ico"><Check size={13}/></span><strong>Create approval</strong><span>Finance queue</span></div><span className="cursor-person" style={{left:'50%',top:'32%'}}><em>Ada</em></span><span className="cursor-person" style={{left:'74%',top:'68%'}}><em>Kofi</em></span></div><aside className="workflow-props"><p className="panel-label">Properties</p><div className="prop-section"><strong>Vendor Lookup</strong><label className="field-label">Location</label><input className="field" value="Lagos, Nigeria" readOnly/><label className="field-label">Vendor tier</label><input className="field" value="Preferred" readOnly/></div><div className="prop-section"><strong>Rules</strong><label className="field-label">Risk threshold</label><input className="field" value="Less than 40" readOnly/></div><button className="btn btn-primary" style={{width:'100%',marginTop:15,minHeight:36,fontSize:10}}>Save node</button></aside></div>}
-
-function VendorBoard({tab}:{tab:string}){return <div className="vendor-board"><div className="console-top" style={{marginBottom:14}}><div><strong style={{fontSize:13}}>{tab} overview</strong><span style={{display:'block',fontSize:9,color:'#8d95a2',marginTop:3}}>Updated just now · Lagos hub</span></div><span className="tag tag-green"><i className="live-dot"/> Live</span></div><div className="kpi-grid"><div className="kpi"><span>Active vendors</span><strong>{tab==='Risk'?'18':'284'}</strong><small>↑ 12 this month</small></div><div className="kpi"><span>On-time delivery</span><strong>94.2%</strong><small>↑ 2.8%</small></div><div className="kpi"><span>Open POs</span><strong>₦28.4m</strong><small>37 orders</small></div></div><div className="vendor-table"><div className="vendor-row header"><span>Vendor</span><span>Category</span><span>Performance</span><span>Status</span></div>{[['Kora Packaging','Materials','96%'],['TransWest Africa','Logistics','91%'],['Nile Office Systems','Technology','88%'],['Sankofa Supplies','Facilities','94%']].map(([n,c,p],i)=><div className="vendor-row" key={n}><span className="vendor-name"><i className="vendor-avatar">{n.split(' ').map(x=>x[0]).join('').slice(0,2)}</i>{n}</span><span>{c}</span><span>{p}</span><span className={`tag ${i===2?'tag-orange':'tag-green'}`}>{i===2?'Review':'Active'}</span></div>)}</div></div>}
+function WorkflowPreview() {
+  return (
+    <div className="workflow-shell">
+      <aside className="workflow-sidebar">
+        <p className="panel-label">Node palette</p>
+        <div className="node-chip"><i /> Start trigger</div>
+        <div className="node-chip voice"><i /> Voice command</div>
+        <div className="node-chip"><i /> Condition</div>
+        <div className="node-chip vendor"><i /> Vendor lookup</div>
+        <div className="node-chip"><i /> Send approval</div>
+      </aside>
+      <div className="workflow-canvas">
+        <div className="canvas-toolbar"><button className="canvas-tool" aria-label="Zoom in"><ZoomIn size={14} /></button><button className="canvas-tool" aria-label="Zoom out"><ZoomOut size={14} /></button><button className="canvas-tool" aria-label="Run workflow"><Play size={14} /></button></div>
+        <svg className="edge-svg" viewBox="0 0 800 590" preserveAspectRatio="none" aria-hidden="true"><path className="edge-path active" d="M115,176 C200,176 205,120 295,120" /><path className="edge-path" d="M425,120 C500,120 480,260 570,260" /><path className="edge-path active" d="M635,290 C635,380 530,390 530,470" /><path className="edge-path" d="M425,120 C445,120 380,300 310,335" /><path className="edge-path" d="M310,365 C310,450 395,470 460,470" /></svg>
+        <div className="demo-node" style={{ left: '6%', top: '25%' }}><span className="node-ico"><CirclePlay size={13} /></span><strong>New request</strong><span>Voice or form</span></div>
+        <div className="demo-node voice" style={{ left: '35%', top: '14%' }}><span className="node-ico"><ScanText size={13} /></span><strong>Understand intent</strong><span>English · Nigeria</span></div>
+        <div className="demo-node vendor" style={{ right: '7%', top: '41%' }}><span className="node-ico"><Store size={13} /></span><strong>Vendor lookup</strong><span>Preferred · Rivers</span></div>
+        <div className="demo-node" style={{ left: '31%', top: '55%' }}><span className="node-ico"><GitBranch size={13} /></span><strong>Risk gateway</strong><span>Score &lt; 40</span></div>
+        <div className="demo-node end" style={{ left: '54%', bottom: '10%' }}><span className="node-ico"><Check size={13} /></span><strong>Create approval</strong><span>Finance queue</span></div>
+        <span className="cursor-person" style={{ left: '50%', top: '32%' }}><em>Ada</em></span>
+      </div>
+      <aside className="workflow-props">
+        <p className="panel-label">Properties</p>
+        <div className="prop-section"><strong>Vendor lookup</strong><label className="field-label">Location</label><input className="field" value="Port Harcourt, NG" readOnly /><label className="field-label">Vendor tier</label><input className="field" value="Preferred" readOnly /></div>
+        <div className="prop-section"><strong>Rules</strong><label className="field-label">Risk threshold</label><input className="field" value="Less than 40" readOnly /></div>
+        <button className="btn btn-dark workflow-save">Save node</button>
+      </aside>
+    </div>
+  );
+}

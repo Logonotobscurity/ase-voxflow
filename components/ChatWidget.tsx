@@ -8,9 +8,9 @@ type Message = { role: 'assistant'|'user'; text: string };
 export function ChatWidget() {
   const [open,setOpen]=useState(false); const [voice,setVoice]=useState(false); const [typing,setTyping]=useState(false);
   const [value,setValue]=useState(''); const [messages,setMessages]=useState<Message[]>([{role:'assistant',text:'Hello — I’m Ayo, your Ase workflow guide. Tell me what you want to automate.'}]);
-  const panel=useRef<HTMLDivElement>(null); const input=useRef<HTMLInputElement>(null);
+  const panel=useRef<HTMLDivElement>(null); const input=useRef<HTMLInputElement>(null); const launcher=useRef<HTMLButtonElement>(null); const hadOpened=useRef(false);
   useEffect(()=>{const fn=(e:KeyboardEvent)=>{if(e.key==='Escape')setOpen(false)};document.addEventListener('keydown',fn);return()=>document.removeEventListener('keydown',fn)},[]);
-  useEffect(()=>{if(open) setTimeout(()=>input.current?.focus(),80)},[open]);
+  useEffect(()=>{if(open){hadOpened.current=true;setTimeout(()=>input.current?.focus(),80)}else if(hadOpened.current){launcher.current?.focus()}},[open]);
   function send(e?:FormEvent, preset?:string){e?.preventDefault();const text=(preset??value).trim();if(!text)return;setMessages(m=>[...m,{role:'user',text}]);setValue('');setTyping(true);setTimeout(()=>{setTyping(false);setMessages(m=>[...m,{role:'assistant',text:text.toLowerCase().includes('vendor')?'I found 12 preferred logistics vendors in Lagos. I can add a Vendor Lookup node and a risk threshold to your canvas.':'I’ve drafted that as a workflow. Would you like me to open it in Visual Canvas for review?'}])},850)}
   return <>
     {open && <div className="chat-panel" role="dialog" aria-modal="true" aria-label="Ase assistant" ref={panel}>
@@ -20,6 +20,6 @@ export function ChatWidget() {
       <div className="chat-suggest"><button onClick={()=>send(undefined,'Build a vendor onboarding flow')}>Vendor onboarding</button><button onClick={()=>send(undefined,'Connect Gmail to Notion')}>Connect my tools</button><button onClick={()=>send(undefined,'Show workflow examples')}>See examples</button></div>
       <form className="chat-input" onSubmit={send}><input ref={input} value={value} onChange={e=>setValue(e.target.value)} placeholder="Describe a workflow…" aria-label="Message"/><button aria-label="Send message"><Send size={15}/></button></form>
     </div>}
-    <button className="chat-launcher" aria-label={open?'Close Ase assistant':'Talk to Ase assistant'} onClick={()=>setOpen(v=>!v)}>{open?<X size={21}/>:<><Sparkles size={22}/><span className="launcher-badge"/></>}</button>
+    <button ref={launcher} className="chat-launcher" aria-expanded={open} aria-label={open?'Close Ase assistant':'Talk to Ase assistant'} onClick={()=>setOpen(v=>!v)}>{open?<X size={21}/>:<><Sparkles size={22}/><span className="launcher-badge"/></>}</button>
   </>;
 }

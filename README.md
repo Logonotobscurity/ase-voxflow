@@ -1,6 +1,6 @@
-# Ase · VOXFLOW integrated workflow platform
+# Ase · VOXFLOW operational intelligence platform
 
-A production-style Next.js App Router prototype for a voice-first, multi-platform business automation product focused on African operations.
+A production-style Next.js App Router experience for voice-first, multi-surface business automation focused on African operations.
 
 ## Run
 
@@ -13,26 +13,34 @@ Open `http://localhost:3000`.
 
 ## Routes
 
-- `/` — marketing experience: hero, voice-first demo, workflow canvas preview, vendor intelligence, visualizer showcase, marketplace, testimonials
-- `/platform` and `/app/canvas` — interactive React Flow workflow studio
-- `/app/voice` — agent audio visualizer and realtime session studio
-- `/app/vendors` — vendor operations dashboard
-- `/marketplace` — searchable/filterable agent and connector marketplace
-- `/solutions` — industries and transformation initiatives
-- `/company` — company story and values
-- `/resources` — documentation and community hub
+- `/` — conversion-focused marketing experience and interactive product proof
+- `/platform` — platform overview, execution model and technical architecture
+- `/app/canvas` — interactive React Flow Visual Canvas
+- `/app/voice` — agent visualizer and realtime voice session studio
+- `/app/vendors` — searchable vendor operations command centre
+- `/marketplace` — searchable/filterable agent, template and connector marketplace
+- `/solutions` — industry entry points with contextual canvas blueprints
+- `/resources` — guides, builder paths and transparent demo-status model
+- `/company` — purpose, principles and regional operating context
+- `/privacy`, `/terms`, `/security` — trust and legal routes
 - `/api/vendors` — Zod-validated demo vendor API
-- `/api/voice/transcribe`, `/api/voice/synthesize` — voice service gateway contract demos
+- `/api/voice/transcribe`, `/api/voice/synthesize` — voice gateway contract demos
 
-Legacy aliases: `/log_on` redirects to `/`; `/voxflow` redirects to `/platform`.
+Legacy aliases: `/log_on` redirects to `/`; `/voxflow` redirects to `/platform`. Unknown routes use a branded recovery page.
 
 ## Product decisions
 
-- **Ase** is the customer-facing brand; **VOXFLOW** is the workflow application shell.
-- PostgreSQL + Prisma is the intended operational source of truth; MongoDB is intentionally not part of the architecture.
+- **Ase** is the customer-facing brand; **VOXFLOW** is the workflow platform.
+- PostgreSQL 16 + Prisma is the intended operational source of truth; MongoDB is deprecated and intentionally absent from the architecture.
 - Next.js App Router is the canonical web stack.
-- Liveblocks is intended for canvas collaboration, WebRTC for media, NATS for voice events, and Socket.io only for the mobile sync bridge.
-- The visual prototype uses local state and safe demo API contracts; production credentials/services are not included.
+- Liveblocks owns canvas CRDT collaboration, WebRTC owns realtime media, NATS owns voice/workflow events, and Socket.io is reserved for mobile push/synchronisation.
+- The visual prototype uses local state and safe demo API contracts; production credentials and services are not included.
+
+## Design system
+
+The responsive editorial-technical system uses amber `#ffcc33`, ink `#22221f`, cream/paper surfaces, hard linework, dotted technical fields, schematic workflows and short transitions. `app/globals.css` retains functional component foundations; `app/revamp.css` applies the current system.
+
+The full audit and validation record is in [`docs/UX-AUDIT.md`](docs/UX-AUDIT.md).
 
 ## Netlify deployment
 
@@ -41,7 +49,7 @@ The repository includes `netlify.toml` for Netlify’s OpenNext runtime:
 - Build command: `npm run build`
 - Publish directory: `.next`
 - Node.js: 22.13
-- App Router, API routes, SSR, and PWA assets are supported by Netlify’s automatic Next.js adapter.
+- App Router, API routes, redirects and PWA assets are supported by Netlify’s automatic Next.js adapter.
 
 Deploy from the repository in Netlify, or from the CLI:
 
@@ -57,4 +65,4 @@ Configure production secrets in **Netlify → Site configuration → Environment
 npm run build
 ```
 
-The project includes responsive breakpoints, reduced-motion support, keyboard-visible focus states, touch targets, PWA manifest/service worker shell, modal escape handling, and an interactive mobile canvas property sheet.
+The project includes responsive breakpoints, reduced-motion support, keyboard-visible focus states, 44px touch targets, a PWA manifest/service worker shell, contextual template handoff and Escape/backdrop/focus handling for primary dialogs.

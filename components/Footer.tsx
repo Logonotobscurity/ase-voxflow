@@ -1,22 +1,34 @@
 import Link from 'next/link';
+import { ArrowUpRight } from 'lucide-react';
 import { Brand } from './Brand';
 
 const groups = [
-  { title: 'Product', links: [['Visual Canvas','/platform'],['Voice Studio','/app/voice'],['Vendor Ops','/app/vendors'],['Marketplace','/marketplace']] },
-  { title: 'Solutions', links: [['Financial services','/solutions'],['Logistics','/solutions'],['Public sector','/solutions'],['All industries','/solutions']] },
-  { title: 'Resources', links: [['Documentation','/resources'],['Community','/resources'],['Agent UI','/resources'],['System status','/resources']] },
-  { title: 'Company', links: [['About Ase','/company'],['Careers','/company'],['Contact','/company'],['Privacy','/company']] },
+  { title: 'Platform', links: [['Overview', '/platform'], ['Visual Canvas', '/app/canvas'], ['Voice Studio', '/app/voice'], ['Vendor Operations', '/app/vendors']] },
+  { title: 'Discover', links: [['Solutions', '/solutions'], ['Marketplace', '/marketplace'], ['Resources', '/resources'], ['Company', '/company']] },
+  { title: 'Trust', links: [['Security', '/security'], ['Privacy', '/privacy'], ['Terms', '/terms'], ['System status', '/resources']] },
+  { title: 'Start', links: [['Build a workflow', '/app/canvas'], ['Explore agents', '/marketplace'], ['Talk to us', 'mailto:hello@ase.africa'], ['Creator programme', '/company']] },
 ];
 
 export function Footer() {
-  return <footer className="site-footer">
-    <div className="container">
-      <div className="footer-top">
-        <div className="footer-brand"><Brand/><p>Enterprise automation that listens, understands and acts — designed for how African businesses actually run.</p></div>
-        {groups.map(g => <div className="footer-group" key={g.title}><h3>{g.title}</h3>{g.links.map(([label,href]) => <Link href={href} key={label}>{label}</Link>)}</div>)}
+  return (
+    <footer className="site-footer">
+      <div className="container">
+        <div className="footer-top">
+          <div className="footer-brand">
+            <Brand />
+            <p>Operational intelligence that listens, understands and acts—designed for how African businesses actually run.</p>
+            <a className="footer-contact" href="mailto:hello@ase.africa">hello@ase.africa <ArrowUpRight size={14} /></a>
+          </div>
+          {groups.map((group) => (
+            <div className="footer-group" key={group.title}>
+              <h3>{group.title}</h3>
+              {group.links.map(([label, href]) => href.startsWith('mailto:') ? <a href={href} key={label}>{label}</a> : <Link href={href} key={label}>{label}</Link>)}
+            </div>
+          ))}
+        </div>
+        <div className="footer-bottom"><span>© 2026 Ase Technologies. All rights reserved.</span><span>Port Harcourt · Lagos · Nairobi · Johannesburg</span></div>
+        <div className="footer-word" aria-hidden="true">ASE / VOXFLOW</div>
       </div>
-      <div className="footer-bottom"><span>© 2026 Ase Technologies. All rights reserved.</span><span>Lagos · Nairobi · Johannesburg · Global</span></div>
-      <div className="footer-word" aria-hidden="true">ASE</div>
-    </div>
-  </footer>;
+    </footer>
+  );
 }
