@@ -159,6 +159,10 @@ Completed on 14 August 2026:
 - `/log_on` — HTTP 308 to `/`.
 - `/voxflow` — HTTP 308 to `/platform`.
 - Manifest, service worker and PWA icon — HTTP 200.
+- Netlify production deployment — [https://ase-voxflow.netlify.app](https://ase-voxflow.netlify.app).
+- Production HTTPS checks — homepage, platform and contextual canvas returned HTTP 200; unknown route returned HTTP 404.
+- Production security headers — HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and scoped `Permissions-Policy` verified.
+- Production deploy ID — `6a7ef59a1c50a600c5b07baa`.
 
 ## 9. Recommended next production steps
 
@@ -167,4 +171,4 @@ Completed on 14 August 2026:
 3. Connect authentication, PostgreSQL/Prisma persistence and production realtime services behind the existing frontend contracts.
 4. Replace demo metrics and logos with approved customer evidence before public launch.
 5. Add event analytics for hero actions, outcome selection, template handoff, marketplace installation and successful canvas execution.
-6. Verify Netlify production headers, service-worker update behaviour and deployment URL after account authorisation.
+6. Connect a custom production domain and review service-worker update behaviour during the first controlled release.

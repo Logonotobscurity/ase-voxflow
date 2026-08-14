@@ -44,6 +44,8 @@ The full audit and validation record is in [`docs/UX-AUDIT.md`](docs/UX-AUDIT.md
 
 ## Netlify deployment
 
+**Production:** [https://ase-voxflow.netlify.app](https://ase-voxflow.netlify.app)
+
 The repository includes `netlify.toml` for Netlify’s OpenNext runtime:
 
 - Build command: `npm run build`
