@@ -4,10 +4,10 @@ import { LegalPage } from '@/components/LegalPage';
 export const metadata: Metadata = { title: 'Security' };
 
 export default function SecurityPage() {
-  return <LegalPage eyebrow="Trust centre" title="Control is part of the flow." intro="Ase is designed so identity, data boundaries and operational approvals remain visible—not bolted on after deployment." sections={[
-    { title: 'Identity and access', body: 'The target architecture supports role-based access, least-privilege integration scopes and environment-aware permissions for authors, reviewers and operators.' },
-    { title: 'Data protection', body: 'Production data should be encrypted in transit and at rest, isolated by workspace and governed through customer-defined retention and regional processing policies.' },
-    { title: 'Workflow governance', body: 'Versions, approvals and execution events are designed to produce a durable audit trail. Sensitive actions can require explicit human gates before execution.' },
+  return <LegalPage eyebrow="Trust centre" title="Control is part of the flow." intro="This page distinguishes controls present in the preview from production security work that still requires a verified deployment." sections={[
+    { title: 'Identity and access', body: 'Canonical role and permission checks exist, but the current demo headers are spoofable and are not authentication. Trusted identity and tenant-membership verification are not implemented.' },
+    { title: 'Data protection', body: 'A production deployment must verify encryption in transit and at rest, tenant isolation, secret handling, retention and regional processing. Those deployment controls are not proven by this repository.' },
+    { title: 'Workflow governance', body: 'The runtime records versioned workflow state, correlated events, execution evidence and explicit approval stops. Durable audit delivery, approval resumption and external side-effect adapters remain unimplemented or unverified.' },
     { title: 'Responsible disclosure', body: 'Security researchers can report a potential issue to security@ase.africa. Include reproducible detail and avoid accessing data that is not yours.' },
   ]} />;
 }

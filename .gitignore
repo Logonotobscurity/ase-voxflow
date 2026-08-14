@@ -9,3 +9,7 @@ dist
 .config/
 .netlify/
 .cache/
+.local/
+coverage/
+app/generated/prisma/
+*.tsbuildinfo

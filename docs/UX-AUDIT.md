@@ -1,174 +1,153 @@
-# Ase / VOXFLOW UX audit and revamp report
+# Ase / VOXFLOW UX audit
 
-**Audit date:** 14 August 2026  
-**Scope:** Marketing experience, product discovery, marketplace, Visual Canvas, Voice Studio, Vendor Operations, navigation, legal/trust routes, mobile behaviour, accessibility and conversion flow.  
-**Reference direction:** Editorial-technical composition inspired by the supplied Automerge sample, adapted to Ase’s African business-intelligence context.
+**Audit status:** repository-aligned as of 14 August 2026
 
-## 1. Executive summary
+**Brand:** Ase
 
-The original product demonstrated substantial capability but presented it as a generic purple/cyan SaaS site. Product discovery and product use were also conflated: `/platform` duplicated the working canvas, the Visual Canvas was difficult to discover from navigation, several cards and controls ended without a useful next step, and trust/legal destinations were absent.
+**Platform:** VOXFLOW
 
-The revamp establishes one coherent journey:
+**Legacy alias:** LOG_ON AI redirects through `/log_on`
 
-1. **Understand:** the homepage explains what Ase hears, understands and acts on.
-2. **See it work:** schematic system, outcome tabs, voice console and canvas preview show the operating model.
-3. **Choose a context:** solutions, marketplace entries and platform product paths meet different visitor intents.
-4. **Prove a workflow:** all major conversion paths lead to a working studio, relevant template query or direct conversation.
-5. **Operate with control:** trust, architecture, approval and status language is visible throughout.
+This is a code and build audit of the current product preview. It distinguishes interactive implementation from illustrative content. Browser interaction and responsive visual regression remain **UNVERIFIED** because no supported browser executable was available in the workspace.
 
-The resulting interface uses amber, ink and cream; visible linework; dotted technical textures; flat high-contrast surfaces; compact mono labels; responsive schematics; and short interactions. It preserves the existing demos while making their relationship clear.
+## 1. Experience objective
 
-## 2. Findings and resolutions
+The interface is designed as an editorial, African-business-oriented workflow product rather than a generic AI dashboard. Its clearest journey is:
 
-| Severity | Finding | User impact | Resolution |
-|---|---|---|---|
-| Critical | `/platform` and `/app/canvas` rendered the same canvas experience. | Visitors could not distinguish product explanation from product use. | `/platform` is now a dedicated overview; `/app/canvas` remains the working Visual Canvas. |
-| High | Visual Canvas had no clear place in the primary platform navigation. | The strongest functional demo was hard to discover. | Platform dropdown now exposes Visual Canvas, Voice Studio, Vendor Operations and Marketplace with distinct descriptions. |
-| High | The visual system resembled a generic purple/cyan SaaS template. | Weak differentiation and poor alignment with the supplied reference. | Added a responsive amber/ink/cream editorial-technical design layer with hard borders, linework, dotted textures and schematic diagrams. |
-| High | Homepage hierarchy moved through features without a clear conversion narrative. | Visitors had to infer value and the next action. | Reordered experience around value, system operation, selectable outcomes, voice proof, canvas proof, marketplace and final action. |
-| High | Multiple CTAs and cards ended as generic buttons or repeated `/platform` links. | Lost intent and low confidence in interactions. | Solution cards open contextual canvas blueprints; marketplace installs open templates; vendor actions open registration/PO flows; resource cards route to relevant destinations. |
-| High | Desktop-sized inline canvas columns overrode responsive layout rules. | Internal canvas could overflow on tablet/mobile. | Moved widths into responsive CSS custom properties and collapsed side/property panels at tablet and mobile breakpoints. |
-| High | Dialogs did not consistently support Escape, initial focus or background scroll locking. | Keyboard and touch users could lose context. | Added Escape handling, close-button focus, backdrop dismissal, labelled dialogs and scroll locking to marketplace, vendor and canvas dialogs. |
-| High | Missing legal pages and legacy aliases created dead ends. | Trust and migrated URLs were incomplete. | Added Privacy, Terms, Security, custom 404, `/voxflow → /platform` and `/log_on → /`. |
-| Medium | Footer did not consistently meet the required responsive column progression. | Navigation became dense or disappeared at smaller widths. | Footer now moves from 2 columns on mobile to 3 on tablet and 4 link groups on desktop, plus a large wordmark. |
-| Medium | Vendor module tabs and filters had weak feedback. | Controls appeared decorative. | Tabs now change module guidance; risk filter changes records; search is live; CSV export works; result state is announced. |
-| Medium | Voice Studio controls lacked complete state/label feedback. | Preview controls were less usable by keyboard and assistive technology. | Added pressed states, explicit form labels, copy feedback, camera/microphone labels and a working session simulator. |
-| Medium | PWA registration was imported but never rendered. | Manifest and service worker did not form a complete installable shell. | Root layout renders registration; cache versioning, same-origin handling, icon and theme metadata were updated. |
-| Medium | Status wording implied an operational service without a verified status source. | Could overstate production readiness. | Resource status section clearly labels demo-ready versus frontend-preview surfaces. |
+1. understand the governed workflow proposition on `/`;
+2. inspect the product boundaries on `/platform`;
+3. open `/app/canvas` and edit one canonical React Flow graph;
+4. save and run that graph through the versioned `/api/v1` contracts;
+5. inspect explicit execution, evidence, failure, or approval-stop feedback;
+6. use marketplace, vendor, and voice surfaces as labelled previews—not as evidence of provider integrations.
 
-## 3. Information architecture
+The current implementation proves a bounded memory-mode demo path. It does not prove production identity, durable PostgreSQL operation, collaboration, media transport, mobile synchronization, LLM planning, or external enterprise actions.
 
-### Primary navigation
+## 2. Information architecture
 
-- **Platform dropdown**
-  - `/platform` — explanatory overview and product architecture
-  - `/app/canvas` — working Visual Canvas
-  - `/app/voice` — working Voice Studio
-  - `/app/vendors` — working Vendor Operations
-- **Solutions** — `/solutions`
-- **Marketplace dropdown**
-  - `/marketplace` — all categories
-  - category query links for agents, templates, integrations and connectors
-- **Resources** — `/resources`
-- **Company** — `/company`
-- **Primary action** — `/app/canvas`
+### Marketing and trust routes
 
-### Trust and compatibility routes
+- `/` — product narrative and entry points
+- `/platform` and `/voxflow` — platform overview
+- `/solutions` — illustrative industry starting points
+- `/marketplace` — curated concept and demo listings
+- `/resources` — current references, demo paths, and capability boundaries
+- `/company` — purpose and contact route
+- `/privacy`, `/security`, `/terms` — preview-aware trust and legal boundaries
+- `/log_on` — legacy alias route
 
-- `/privacy`
-- `/terms`
-- `/security`
-- `/voxflow` → permanent redirect to `/platform`
-- `/log_on` → permanent redirect to `/`
-- Custom not-found route with recovery actions
+### Product routes
 
-### Route responsibility rule
+- `/app/canvas` — canonical workflow graph editor and demo execution path
+- `/app/vendors` — scripted vendor-operations interface using illustrative records
+- `/app/voice` — scripted voice-interface preview and deterministic command proposal path
 
-Marketing routes explain, compare and establish trust. `/app/*` routes let the visitor perform or simulate product work. This avoids the previous ambiguity between platform narrative and application workspace.
+### HTTP routes
 
-## 4. Conversion and engagement flow
+- `/api/v1/workflows`
+- `/api/v1/workflows/[workflowId]/executions`
+- `/api/v1/transactions`
+- `/api/v1/approvals/[approvalId]/decision`
+- `/api/v1/agent/commands` — canonical text/already-transcribed-voice proposals
+- `/api/v1/voice/commands` — transcript compatibility adapter
+- `/api/vendors` — read-only illustrative legacy response; writes fail closed
+- `/api/voice/transcribe` and `/api/voice/synthesize` — deprecated provider stubs that fail closed
 
-### Homepage
+The latest optimized build generates or analyses 24 routes, including the framework not-found route. This count must not be read as 23 production capabilities.
 
-- The hero answers **what Ase does** and provides two distinct actions: explore the platform or open a working canvas.
-- The system schematic answers **how signals become action**.
-- Selectable outcome tabs answer **where it applies** and update a meaningful panel rather than acting as decorative pills.
-- Voice and workflow sections provide **product evidence**, not only feature claims.
-- Marketplace previews support **reuse and discovery**.
-- Final CTA offers **build now** or **browse templates**, preserving self-serve and exploration paths.
+## 3. Navigation and conversion flow
 
-### Contextual handoff
+The persistent header groups product destinations under a Platform dropdown and includes Visual Canvas as required. Primary calls to action lead to `/app/canvas`; secondary links lead to architecture, solutions, resources, or a mail conversation.
 
-URLs now preserve intent through template or solution parameters. Visual Canvas reads those parameters and labels the resulting workspace, so a visitor arriving from Voice Studio, Vendor Operations, Solutions or Marketplace sees a contextual starting point rather than an unexplained generic canvas.
+The homepage avoids dead category tags: category pills update a feature panel in place. Marketplace categories filter the listing catalogue, while each listing opens an accessible-labelled detail dialog and then links to an editable canvas demo. Marketplace publishing and commercial rails are explicitly roadmap items.
 
-### Operational demos
+The responsive footer is structured as two columns on mobile, three on tablet, and four on desktop, followed by the Ase wordmark. Location labels describe contexts in view rather than claiming operating offices.
 
-- Marketplace category filters, search, modal details and install routes work.
-- Vendor search, module selection, risk filter, CSV export and profile dialog work.
-- Voice visual style, agent state, colour controls, code copy and media controls work.
-- Canvas palette search, node filters, node creation/editing, edge connection, execute simulation, voice commands, vendor profile and PO flow work.
+## 4. Visual system
 
-## 5. Visual system
+The visual direction follows the supplied editorial automation reference while retaining Ase terminology and African operating context.
 
-### Core palette
+- warm paper, cream, amber, cyan, purple, and ink surfaces;
+- strong serif display hierarchy with compact sans-serif controls;
+- generous whitespace, thin rules, rounded cards, and structured metadata;
+- African business references such as NGN, vendor onboarding, approvals, Lagos, Port Harcourt, Nairobi, and Johannesburg;
+- homepage hero artwork combining the rotating Ase orb, workflow snippet card, and AI-assist card;
+- custom scrollbar styling and named animation keyframes in the global stylesheet;
+- interaction transitions capped at 0.2 seconds, with reduced-motion behavior in CSS.
 
-- Amber: `#ffcc33`
-- Ink: `#22221f`
-- Paper: `#fff9e9`
-- Cream: `#f8f5ec`
-- Operational red: `#ef493d`
-- Success green: `#18794e`
+The visual workflow preview on the homepage is intentionally non-operational: zoom, run, replay, and save controls are disabled. The real editable path is `/app/canvas`.
 
-### Composition
+## 5. Interaction and accessibility audit
 
-- Flat surfaces and hard two-pixel borders replace glass-heavy gradient cards.
-- Small monospaced labels identify state, category and architecture.
-- Dotted and gridded fields suggest a working technical surface.
-- Schematic nodes and connecting lines describe system behaviour.
-- Large, restrained editorial headings create hierarchy without excessive decoration.
-- Shadows are offset blocks rather than diffuse elevation.
-- Interaction transitions stay at or below 0.2 seconds.
+Implemented in code:
 
-## 6. Accessibility and responsive review
+- semantic links for navigation and calls to action;
+- explicit labels for icon-only buttons and form fields;
+- minimum control sizing rules intended to provide 44px mobile touch targets;
+- keyboard activation for native links and buttons;
+- Escape dismissal for marketplace and chat dialogs;
+- backdrop dismissal for the marketplace dialog;
+- initial focus on the marketplace close button and focus return for the chat launcher;
+- screen-reader dialog names and live status regions in interactive surfaces;
+- visible labels when controls are scripted, preview-only, disabled, or not connected;
+- reduced-motion CSS support.
 
-### Implemented
+Remaining accessibility work:
 
-- Semantic headings, landmarks, links and buttons retained across routes.
-- Mobile controls and important icon buttons use a minimum 44px target.
-- Navigation supports Escape, outside click, initial focus and body scroll locking.
-- Dropdown and tab states expose `aria-expanded`, `aria-current`, `aria-selected` or `aria-pressed` as appropriate.
-- Dialogs expose `role="dialog"`, `aria-modal`, useful labels and focused close controls.
-- Chat launcher restores focus after dismissal.
-- SVG system diagram has a labelled role and descriptive text.
-- Reduced-motion media query disables or compresses animation and transition behaviour.
-- Horizontal collections such as filters and outcome tabs scroll within their region instead of forcing document overflow.
-- Layout breakpoints cover wide desktop, laptop, tablet and narrow mobile.
-- Footer follows 4-column desktop, 3-column tablet and 2-column mobile progression.
+- full browser keyboard traversal is **UNVERIFIED**;
+- the marketplace and chat dialogs do not yet implement a complete Tab/Shift+Tab focus trap;
+- focus return from the marketplace dialog should be tied to the listing trigger;
+- colour contrast, zoom/reflow, screen-reader announcements, and 44px computed hit areas require browser measurement;
+- canvas keyboard behavior requires dedicated assistive-technology testing.
 
-### Responsive checkpoints reviewed in source
+## 6. Truthful capability labelling
 
-- **Wide/laptop:** four-entry platform grids, full navigation and three-column outcome panel.
-- **Tablet:** menu sheet, two-column product/stack grids, stacked hero and system story, absolute canvas property panel.
-- **Mobile:** single-column story/content grids, two-column footer, collapsed canvas toolset, horizontal tab/filter scrolling and full-width primary actions.
+The claim audit changed successful-looking samples into explicit boundaries:
 
-### Remaining production-stage verification
+- canonical canvas saves and runs use the same workflow contract as the backend;
+- memory-mode execution evidence says `simulated: true` and uses deterministic demo handlers;
+- transaction nodes stop at human approval and do not issue payment or purchase-order instructions;
+- the voice command API creates deterministic proposals, not transcripts or proof of action;
+- legacy transcription and synthesis routes return `501 NOT_IMPLEMENTED` instead of fabricated provider output;
+- legacy vendor reads are labelled illustrative, and writes return `501` rather than pretend persistence;
+- marketplace cards are concept listings with no verified adapter;
+- Liveblocks, WebRTC, NATS, Socket.io, LLM, MCP, and external transaction rails are labelled not integrated.
 
-A final release should still include browser-based visual regression and assistive-technology checks on real devices. The current environment had no Chromium/Firefox executable, so this audit used production compilation, source inspection, route/link checks and server responses rather than screenshot comparison or an automated browser accessibility engine.
+## 7. Responsive behavior
 
-## 7. Architecture positioning
+The stylesheet contains mobile and tablet breakpoints for navigation, hero composition, category controls, cards, product workspaces, footer columns, and floating assistant geometry. Canvas and panel dimensions are calculated for smaller screens rather than using one desktop-only fixed size.
 
-The product overview now states the intended responsibility split:
+Responsive implementation has passed static TypeScript, lint, and production-build checks. Actual browser layout, rotation, safe-area behavior, touch interaction, and visual diff testing remain **UNVERIFIED**.
 
-- **PostgreSQL 16 + Prisma:** source of truth for workflow definitions, tenants, vendor records and audit history.
-- **Liveblocks:** CRDT collaboration and shared canvas presence.
-- **WebRTC:** realtime voice and video media.
-- **NATS:** voice and workflow event transport.
-- **Socket.io:** mobile push and synchronisation.
+## 8. Engagement risks and mitigations
 
-MongoDB is treated as deprecated and is not positioned as the source of truth. LOG_ON AI appears only as a compatibility redirect; product naming is consistently Ase / VOXFLOW.
+| Risk | Current mitigation | Remaining work |
+|---|---|---|
+| Marketing surface implies unsupported automation | Preview/demo/not-integrated labels and disabled fake controls | Repeat browser/content review before release |
+| User reaches a dead-end category pill | Homepage pills update one feature panel; marketplace pills filter results | Persist category selection in URL if analytics justify it |
+| Scripted chat is mistaken for an agent | Header and replies state that no LLM or tool ran | Add a direct handoff that serializes a draft into the canvas |
+| Marketplace listing is mistaken for an integration | Modal says no external adapter is verified | Add machine-readable implementation status per listing |
+| Approval is mistaken for execution | Runtime stops at `WAITING_APPROVAL`; transaction copy says no external action | Build durable approval resumption and external evidence later |
+| Status labels look like uptime | Resources now says capability boundary, not live availability | Create a real status service only when telemetry exists |
 
-## 8. Validation evidence
+## 9. Verification evidence
 
-Completed on 14 August 2026:
+Repository validation on 14 August 2026 covers:
 
-- `npm run build` — passed with strict type checking and static generation.
-- Build produced 20 app outputs, including 14 user-facing/static routes, 3 API routes and not-found handling.
-- Static internal-link scan — 62 references checked, 0 unresolved.
-- Production server route check — all primary routes returned HTTP 200.
-- Unknown route — returned HTTP 404.
-- `/log_on` — HTTP 308 to `/`.
-- `/voxflow` — HTTP 308 to `/platform`.
-- Manifest, service worker and PWA icon — HTTP 200.
-- Netlify production deployment — [https://ase-voxflow.netlify.app](https://ase-voxflow.netlify.app).
-- Production HTTPS checks — homepage, platform and contextual canvas returned HTTP 200; unknown route returned HTTP 404.
-- Production security headers — HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and scoped `Permissions-Policy` verified.
-- Production deploy ID — `6a7ef59a1c50a600c5b07baa`.
+- ESLint and strict TypeScript;
+- six Vitest files with 26 passing tests, including bounded timeout, composition-root continuity, atomic rollback, pending-outbox, concurrent idempotency, and single-winner approval regressions;
+- Prisma schema validation and client generation;
+- optimized Next.js production build;
+- production-server HTTP checks for canonical workflow, execution/evidence, transaction/approval, identity failure, and voice proposal paths.
 
-## 9. Recommended next production steps
+The final production-server rerun also passed 18 canonical demo/memory HTTP checks, 6 legacy fail-closed checks, and the non-demo identity fail-closed check; `docs/ARCHITECTURE.md` is the authoritative verification record. Live PostgreSQL, browser behavior, third-party integrations, and deployment of the uncommitted P0 workspace remain **UNVERIFIED**.
 
-1. Run visual regression at 360, 390, 768, 1024, 1440 and 1920 CSS pixels in a browser-enabled CI environment.
-2. Run axe-core and keyboard-only passes against all primary routes and dialog states.
-3. Connect authentication, PostgreSQL/Prisma persistence and production realtime services behind the existing frontend contracts.
-4. Replace demo metrics and logos with approved customer evidence before public launch.
-5. Add event analytics for hero actions, outcome selection, template handoff, marketplace installation and successful canvas execution.
-6. Connect a custom production domain and review service-worker update behaviour during the first controlled release.
+## 10. Recommended next UX increment
+
+1. Add browser automation for header/dropdown, category tabs, dialogs, chat, canvas save/run, approval stop, and responsive footer.
+2. Implement complete focus trapping and trigger-focus restoration for all dialogs.
+3. Add per-listing capability badges sourced from one typed implementation-status field.
+4. Turn scripted chat handoff into a validated draft-workflow proposal rather than another execution surface.
+5. Add durable approval/resume UX only after backend approval records and resumption exist.
+6. Validate mobile behavior on representative low-memory Android devices and constrained networks.
+7. Instrument conversion and failure events only after consent, retention, and telemetry boundaries are implemented.

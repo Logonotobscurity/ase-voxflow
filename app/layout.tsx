@@ -5,7 +5,7 @@ import { PwaRegister } from '@/components/PwaRegister';
 
 export const metadata: Metadata = {
   title: { default: 'Ase — Operational intelligence in motion', template: '%s · Ase' },
-  description: 'Turn operational knowledge, voice and enterprise systems into visible, governed workflows with Ase VOXFLOW.',
+  description: 'Model operational knowledge as visible workflow graphs with bounded demo execution and explicit approval states in Ase VOXFLOW.',
   manifest: '/manifest.webmanifest',
   icons: { icon: '/icon.svg' },
 };

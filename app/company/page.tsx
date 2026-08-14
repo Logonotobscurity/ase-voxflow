@@ -10,8 +10,8 @@ export const metadata: Metadata = { title: 'Company' };
 const values = [
   [Globe2, 'Context over convention', 'Built around local terminology, currencies, networks and operating models.'],
   [HeartHandshake, 'People before process', 'AI that strengthens human judgment instead of hiding it behind a black box.'],
-  [ShieldCheck, 'Trust by design', 'Auditability, access controls and responsible automation in every workflow.'],
-  [Lightbulb, 'Practical ambition', 'Enterprise capability teams can begin proving in days—not wait months to see.'],
+  [ShieldCheck, 'Trust by design', 'Explicit policy, approval and evidence boundaries before consequential workflow actions.'],
+  [Lightbulb, 'Practical ambition', 'Start with a bounded workflow path, then require evidence before expanding scope.'],
 ] as const;
 
 export default function CompanyPage() {

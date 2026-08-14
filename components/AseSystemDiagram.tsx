@@ -13,8 +13,8 @@ export function AseSystemDiagram() {
       role="img"
       aria-labelledby="ase-system-title ase-system-description"
     >
-      <title id="ase-system-title">Ase operational workflow system</title>
-      <desc id="ase-system-description">Voice, business events and offline work converge through decisions and controls into reliable business actions.</desc>
+      <title id="ase-system-title">Ase conceptual workflow model</title>
+      <desc id="ase-system-description">An illustrative target model in which voice, business events and offline work pass through decisions and controls before proposed actions reach people or systems.</desc>
 
       <g className="art-lines" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M104 118v52c0 18 12 34 30 39l104 28c16 4 27 19 27 35v26" />

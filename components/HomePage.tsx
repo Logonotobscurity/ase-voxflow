@@ -5,8 +5,6 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
   ArrowRight,
-  AudioLines,
-  BadgeCheck,
   Bot,
   Boxes,
   Check,
@@ -19,7 +17,6 @@ import {
   Play,
   ScanText,
   ShieldCheck,
-  ShoppingCart,
   Store,
   Truck,
   Users,
@@ -51,40 +48,40 @@ const useCases = {
   vendors: {
     label: 'Vendor operations',
     title: 'Move from supplier request to approved purchase order.',
-    copy: 'Ase verifies documents, scores risk, routes approvals and keeps every handoff visible in one workflow.',
+    copy: 'The current demo models vendor lookup, risk, approval and purchase-order stages without calling external vendor or ERP systems.',
     icon: Store,
-    stat: '68%',
-    statLabel: 'less manual vendor follow-up',
+    stat: 'DEMO',
+    statLabel: 'illustrative vendor journey',
     steps: ['Capture request', 'Verify supplier', 'Route approval', 'Monitor delivery'],
     href: '/app/vendors',
   },
   finance: {
     label: 'Finance controls',
     title: 'Make approvals faster without making controls weaker.',
-    copy: 'Encode thresholds, segregation of duties and exception paths directly into an auditable operating flow.',
+    copy: 'The P0 policy layer demonstrates role checks, separation of duties and explicit approval records with correlated events.',
     icon: Landmark,
-    stat: '3.1×',
-    statLabel: 'faster approval cycles',
+    stat: 'POLICY',
+    statLabel: 'explicit approval controls',
     steps: ['Read invoice', 'Match policy', 'Escalate exception', 'Post decision'],
     href: '/solutions',
   },
   field: {
     label: 'Field operations',
-    title: 'Keep work moving when the network does not.',
-    copy: 'Capture voice and task updates locally, queue them safely and synchronize the full record when teams reconnect.',
+    title: 'Model work that may lose the network.',
+    copy: 'This interface previews the intended offline field journey; local queues and synchronization transports are not yet integrated.',
     icon: Truck,
-    stat: '99.2%',
-    statLabel: 'tasks captured across network states',
+    stat: 'TARGET',
+    statLabel: 'offline queue pattern, not integrated',
     steps: ['Receive job', 'Work offline', 'Capture evidence', 'Sync outcome'],
     href: '/solutions',
   },
   service: {
     label: 'Customer service',
-    title: 'Turn every conversation into the next best action.',
-    copy: 'Understand multilingual requests, retrieve context and trigger a governed workflow without forcing customers through menus.',
+    title: 'Preview the route from conversation to proposed action.',
+    copy: 'This interface previews multilingual service commands; speech recognition, retrieval and customer-channel adapters are not yet integrated.',
     icon: Users,
-    stat: '8',
-    statLabel: 'African languages in one experience',
+    stat: 'PREVIEW',
+    statLabel: 'language UI targets, provider unverified',
     steps: ['Listen', 'Understand intent', 'Resolve or route', 'Confirm action'],
     href: '/app/voice',
   },
@@ -105,22 +102,22 @@ export function HomePage() {
           <div className="container hero-grid">
             <div className="hero-copy">
               <motion.div className="hero-kicker" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
-                <span>New</span> Voice-to-workflow for African operations <ChevronRight size={13} />
+                <span>Preview</span> Voice-to-workflow for African operations <ChevronRight size={13} />
               </motion.div>
               <motion.h1 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
                 Make the way your business works <span className="gradient-word">runnable.</span>
               </motion.h1>
               <p>
-                Ase turns operational knowledge into visible, governed workflows. Describe the work, shape it on the VOXFLOW canvas, then run it across people, agents and systems.
+                Ase turns operating knowledge into visible workflow graphs. Shape the work on the VOXFLOW canvas, then verify bounded demo execution, evidence and approval states through one canonical contract.
               </p>
               <div className="hero-actions">
                 <Link href="/app/canvas" className="btn btn-dark">Build a workflow <ArrowRight size={16} /></Link>
                 <Link href="/platform" className="btn btn-light"><CirclePlay size={16} /> See how it works</Link>
               </div>
               <div className="hero-note" aria-label="Product benefits">
-                <span><i /> Start without a card</span>
-                <span><i /> Keep a complete audit trail</span>
-                <span><i /> Work across network conditions</span>
+                <span><i /> Explore without a card</span>
+                <span><i /> Emit correlated demo evidence</span>
+                <span><i /> External adapters stay fail-closed</span>
               </div>
             </div>
 
@@ -128,22 +125,22 @@ export function HomePage() {
               <div className="orb-stage" aria-hidden="true">
                 <div className="orb-glow" />
                 <div className="orbit">
-                  <span className="integration-chip chip-1">VOICE</span>
-                  <span className="integration-chip chip-2">SAP</span>
-                  <span className="integration-chip chip-3">PAY</span>
-                  <span className="integration-chip chip-4">CRM</span>
-                  <span className="integration-chip chip-5">OPS</span>
+                  <span className="integration-chip chip-1">INPUT</span>
+                  <span className="integration-chip chip-2">GRAPH</span>
+                  <span className="integration-chip chip-3">POLICY</span>
+                  <span className="integration-chip chip-4">EVIDENCE</span>
+                  <span className="integration-chip chip-5">HUMAN</span>
                 </div>
                 <div className="orb"><div className="orb-lines" /><span className="orb-core">ASE</span></div>
               </div>
               <div className="floating-card snippet-card">
-                <span className="float-label">Live workflow</span>
+                <span className="float-label">Illustrative workflow</span>
                 <div className="code-row"><i className="code-dot" /> voice.request</div>
                 <div className="code-row"><i className="code-dot amber" /> risk.score &lt; 40</div>
                 <div className="code-row"><i className="code-dot green" /> finance.approve</div>
               </div>
               <div className="floating-card ai-card">
-                <div className="ai-top"><span className="ai-icon"><Bot size={15} /></span>Ase assist</div>
+                <div className="ai-top"><span className="ai-icon"><Bot size={15} /></span>Illustrative Ase assist</div>
                 <p>I added a control gate before the purchase order is created.</p>
               </div>
             </motion.div>
@@ -164,16 +161,16 @@ export function HomePage() {
         <section className="section section-paper">
           <div className="container">
             <Fade className="section-head">
-              <div><p className="eyebrow"><span className="eyebrow-dot" /> The operating fabric</p><h2 className="h2">One source of truth.<br />Every handoff in view.</h2></div>
-              <p className="lede">VOXFLOW connects what people say, what your rules require and what your systems need to do next.</p>
+              <div><p className="eyebrow"><span className="eyebrow-dot" /> The operating fabric</p><h2 className="h2">One canonical graph.<br />Every modelled handoff in view.</h2></div>
+              <p className="lede">The current VOXFLOW demo keeps workflow structure, policy stops and execution evidence on one inspectable contract.</p>
             </Fade>
             <div className="system-story-grid">
               <Fade className="system-diagram-wrap"><AseSystemDiagram /></Fade>
               <div className="system-principles">
                 {[
-                  ['01', 'Capture the real process', 'Start with a voice instruction, an event or a proven blueprint—not an empty technical canvas.', Mic2],
-                  ['02', 'Make decisions inspectable', 'Conditions, people, agent actions and system calls stay visible and versioned.', GitBranch],
-                  ['03', 'Run with control', 'Test, approve, execute and measure from the same governed workflow.', ShieldCheck],
+                  ['01', 'Capture the process', 'Start with an illustrative voice request, an event-shaped trigger or a curated demo blueprint.', Mic2],
+                  ['02', 'Make decisions inspectable', 'Conditions, approval gates and proposed tool or agent steps remain visible; each save versions the workflow.', GitBranch],
+                  ['03', 'Run with control', 'Validate and run deterministic demo handlers, then stop explicitly when human approval is required.', ShieldCheck],
                 ].map(([n, title, copy, Icon], index) => (
                   <Fade delay={index * 0.04} key={title as string}>
                     <article className="principle-row">
@@ -186,7 +183,7 @@ export function HomePage() {
                 <Link href="/platform" className="text-link">Explore the complete platform <ArrowRight size={15} /></Link>
               </div>
             </div>
-            <Fade><div className="stats-ribbon"><div className="stat"><strong>60+</strong><span>integration nodes</span></div><div className="stat"><strong>8</strong><span>African languages</span></div><div className="stat"><strong>3×</strong><span>faster launches</span></div><div className="stat"><strong>1</strong><span>auditable operating view</span></div></div></Fade>
+            <Fade><div className="stats-ribbon"><div className="stat"><strong>1</strong><span>canonical workflow graph</span></div><div className="stat"><strong>5</strong><span>bounded agent limits</span></div><div className="stat"><strong>22</strong><span>passing automated tests</span></div><div className="stat"><strong>0</strong><span>external demo side effects</span></div></div></Fade>
           </div>
         </section>
 
@@ -224,18 +221,18 @@ export function HomePage() {
           <div className="container voice-grid">
             <Fade>
               <p className="eyebrow"><span className="eyebrow-dot" /> Voice-first by design</p>
-              <h2 className="h2">Speak naturally.<br />Build precisely.</h2>
-              <p className="lede">Ase understands business vocabulary, regional accents and the context behind an instruction—even when connectivity is unreliable.</p>
-              <div className="language-list">{['English', 'Kiswahili', 'Yorùbá', 'Hausa', 'Amharic', 'isiZulu', 'French', 'Portuguese'].map((x) => <span className="lang" key={x}>{x}</span>)}</div>
+              <h2 className="h2">Model natural commands.<br />Review precise proposals.</h2>
+              <p className="lede">This demo shows the intended multilingual interaction and governed command flow. Speech providers, accent performance and offline transport remain unverified.</p>
+              <div className="language-list" aria-label="Target language previews">{['English', 'Kiswahili', 'Yorùbá', 'Hausa', 'Amharic', 'isiZulu', 'French', 'Portuguese'].map((x) => <span className="lang" key={x}>{x}</span>)}</div>
               <Link className="text-link" href="/app/voice">Open Voice Studio <ArrowRight size={15} /></Link>
             </Fade>
             <Fade delay={0.05}>
               <div className="voice-console">
-                <div className="console-top"><span className="status-line"><i className="live-dot" /> Listening · English (Nigeria)</span><span className="tag tag-amber">LIVE</span></div>
+                <div className="console-top"><span className="status-line"><i className="live-dot" /> Scripted sample · English (Nigeria)</span><span className="tag tag-amber">DEMO</span></div>
                 <div className="spectrum">{spectrum.map((h, i) => <span key={i} style={{ '--h': `${h}px`, '--i': i } as React.CSSProperties} />)}</div>
-                <div className="transcript"><span className="transcript-label">Live transcript</span><p>“Find preferred packaging suppliers in Port Harcourt, check risk, then route a ₦2.5 million approval.”<i className="cursor" /></p></div>
-                <div className="console-actions"><button className="mic-orb" aria-label="Pause listening"><Mic2 size={23} /></button></div>
-                <div className="voice-capabilities"><div className="mini-cap"><strong>Accent-aware</strong><span>Understands real operating environments.</span></div><div className="mini-cap"><strong>Offline-ready</strong><span>Queues safely, then synchronizes.</span></div><div className="mini-cap"><strong>Action-bound</strong><span>Every command maps to a governed step.</span></div></div>
+                <div className="transcript"><span className="transcript-label">Example transcript</span><p>“Find preferred packaging suppliers in Port Harcourt, check risk, then route a ₦2.5 million approval.”<i className="cursor" /></p></div>
+                <div className="console-actions"><button className="mic-orb" aria-label="Audio replay is not connected" disabled><Mic2 size={23} /></button></div>
+                <div className="voice-capabilities"><div className="mini-cap"><strong>Accent target</strong><span>Provider performance is not yet verified.</span></div><div className="mini-cap"><strong>Offline target</strong><span>Queue transport is not yet integrated.</span></div><div className="mini-cap"><strong>Action-bound</strong><span>Server commands remain governed proposals.</span></div></div>
               </div>
             </Fade>
           </div>
@@ -257,15 +254,15 @@ export function HomePage() {
             <Fade>
               <p className="eyebrow"><span className="eyebrow-dot" /> Marketplace</p>
               <h2 className="h2">Do not start from zero.</h2>
-              <p className="lede">Install a proven agent, connector or process blueprint, then adapt it to your controls and market.</p>
+              <p className="lede">Open a curated agent concept, connector target or demo blueprint, then adapt the graph to your controls and market.</p>
               <Link className="btn btn-dark" href="/marketplace">Browse the marketplace <ArrowRight size={15} /></Link>
             </Fade>
             <div className="market-card-grid">
               {[
-                ['Agents', 'Service and operations intelligence', Bot, '42 ready'],
-                ['Blueprints', 'Reusable, governed process flows', Workflow, '68 flows'],
-                ['Connectors', 'Enterprise and local systems', Boxes, '60+ nodes'],
-                ['Vendor Ops', 'Sourcing, risk and purchasing', PackageCheck, '6 modules'],
+                ['Agents', 'Service and operations intelligence', Bot, 'Concepts'],
+                ['Blueprints', 'Reusable, governed process flows', Workflow, 'Demo flows'],
+                ['Connectors', 'Enterprise and local systems', Boxes, 'Targets'],
+                ['Vendor Ops', 'Sourcing, risk and purchasing', PackageCheck, 'Preview'],
               ].map(([title, text, Icon, count], index) => (
                 <Fade delay={index * 0.04} key={title as string}>
                   <Link href="/marketplace" className="market-card">
@@ -308,20 +305,20 @@ function WorkflowPreview() {
         <div className="node-chip"><i /> Send approval</div>
       </aside>
       <div className="workflow-canvas">
-        <div className="canvas-toolbar"><button className="canvas-tool" aria-label="Zoom in"><ZoomIn size={14} /></button><button className="canvas-tool" aria-label="Zoom out"><ZoomOut size={14} /></button><button className="canvas-tool" aria-label="Run workflow"><Play size={14} /></button></div>
+        <div className="canvas-toolbar"><button className="canvas-tool" aria-label="Preview only: zoom is unavailable" disabled><ZoomIn size={14} /></button><button className="canvas-tool" aria-label="Preview only: zoom is unavailable" disabled><ZoomOut size={14} /></button><button className="canvas-tool" aria-label="Preview only: run is unavailable" disabled><Play size={14} /></button></div>
         <svg className="edge-svg" viewBox="0 0 800 590" preserveAspectRatio="none" aria-hidden="true"><path className="edge-path active" d="M115,176 C200,176 205,120 295,120" /><path className="edge-path" d="M425,120 C500,120 480,260 570,260" /><path className="edge-path active" d="M635,290 C635,380 530,390 530,470" /><path className="edge-path" d="M425,120 C445,120 380,300 310,335" /><path className="edge-path" d="M310,365 C310,450 395,470 460,470" /></svg>
         <div className="demo-node" style={{ left: '6%', top: '25%' }}><span className="node-ico"><CirclePlay size={13} /></span><strong>New request</strong><span>Voice or form</span></div>
-        <div className="demo-node voice" style={{ left: '35%', top: '14%' }}><span className="node-ico"><ScanText size={13} /></span><strong>Understand intent</strong><span>English · Nigeria</span></div>
+        <div className="demo-node voice" style={{ left: '35%', top: '14%' }}><span className="node-ico"><ScanText size={13} /></span><strong>Understand intent</strong><span>Scripted text · Nigeria</span></div>
         <div className="demo-node vendor" style={{ right: '7%', top: '41%' }}><span className="node-ico"><Store size={13} /></span><strong>Vendor lookup</strong><span>Preferred · Rivers</span></div>
         <div className="demo-node" style={{ left: '31%', top: '55%' }}><span className="node-ico"><GitBranch size={13} /></span><strong>Risk gateway</strong><span>Score &lt; 40</span></div>
-        <div className="demo-node end" style={{ left: '54%', bottom: '10%' }}><span className="node-ico"><Check size={13} /></span><strong>Create approval</strong><span>Finance queue</span></div>
+        <div className="demo-node end" style={{ left: '54%', bottom: '10%' }}><span className="node-ico"><Check size={13} /></span><strong>Create approval</strong><span>Finance approval stop</span></div>
         <span className="cursor-person" style={{ left: '50%', top: '32%' }}><em>Ada</em></span>
       </div>
       <aside className="workflow-props">
         <p className="panel-label">Properties</p>
         <div className="prop-section"><strong>Vendor lookup</strong><label className="field-label">Location</label><input className="field" value="Port Harcourt, NG" readOnly /><label className="field-label">Vendor tier</label><input className="field" value="Preferred" readOnly /></div>
         <div className="prop-section"><strong>Rules</strong><label className="field-label">Risk threshold</label><input className="field" value="Less than 40" readOnly /></div>
-        <button className="btn btn-dark workflow-save">Save node</button>
+        <button className="btn btn-dark workflow-save" disabled aria-label="Preview only: save is unavailable">Save node</button>
       </aside>
     </div>
   );

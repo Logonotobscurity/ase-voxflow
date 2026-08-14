@@ -12,8 +12,8 @@ export function VideoPreview() {
   return <div className={`video-preview ${active?'active':''} ${collapsed?'collapsed':''}`} style={{transform:`translate(${pos.x-24}px,${-(pos.y-24)}px)`}} onClick={reset}
     onPointerDown={e=>{reset();drag.current={x:e.clientX,y:e.clientY,px:pos.x,py:pos.y};(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)}}
     onPointerMove={e=>{if(!drag.current)return;const dx=e.clientX-drag.current.x,dy=e.clientY-drag.current.y;if(dx<-130){setVisible(false);return}setPos({x:Math.max(8,drag.current.px+dx),y:Math.max(8,drag.current.py-dy)})}}
-    onPointerUp={()=>drag.current=null} role="button" tabIndex={0} aria-label="Screen analysis video preview. Drag to reposition, swipe left to dismiss.">
+    onPointerUp={()=>drag.current=null} role="button" tabIndex={0} aria-label="Decorative screen-analysis demo. Drag to reposition, swipe left to dismiss.">
       <div className="video-scene"/><button className="video-close" onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();setVisible(false)}} aria-label="Dismiss video preview"><X size={13}/></button>
-      <div className="video-overlay"><ScanEye size={11}/> Screen analysis active</div>{active&&<><i className="resize-dot r1"/><i className="resize-dot r2"/><i className="resize-dot r3"/><i className="resize-dot r4"/></>}
+      <div className="video-overlay"><ScanEye size={11}/> Screen-analysis concept</div>{active&&<><i className="resize-dot r1"/><i className="resize-dot r2"/><i className="resize-dot r3"/><i className="resize-dot r4"/></>}
     </div>;
 }

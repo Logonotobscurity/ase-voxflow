@@ -97,9 +97,9 @@ export function Header() {
               <div id="platform-menu" className="nav-dropdown" ref={dropdownRef} role="menu">
                 <div className="drop-title">Build and operate</div>
                 <Link className="drop-item" href="/platform" role="menuitem"><span className="drop-icon"><LayoutDashboard size={17} /></span><span><strong>Platform overview</strong><span>See how the complete operating layer fits together.</span></span></Link>
-                <Link className="drop-item" href="/app/canvas" role="menuitem"><span className="drop-icon"><Network size={17} /></span><span><strong>Visual Canvas</strong><span>Design, test and run multi-agent workflows.</span></span></Link>
+                <Link className="drop-item" href="/app/canvas" role="menuitem"><span className="drop-icon"><Network size={17} /></span><span><strong>Visual Canvas</strong><span>Design and run canonical demo workflow graphs.</span></span></Link>
                 <Link className="drop-item" href="/app/voice" role="menuitem"><span className="drop-icon"><Mic2 size={17} /></span><span><strong>Voice Studio</strong><span>Prototype multilingual, action-bound agents.</span></span></Link>
-                <Link className="drop-item" href="/app/vendors" role="menuitem"><span className="drop-icon"><BriefcaseBusiness size={17} /></span><span><strong>Vendor Operations</strong><span>Registration, purchasing, risk and performance.</span></span></Link>
+                <Link className="drop-item" href="/app/vendors" role="menuitem"><span className="drop-icon"><BriefcaseBusiness size={17} /></span><span><strong>Vendor Operations</strong><span>Explore sample registration, purchasing, risk and performance UI.</span></span></Link>
               </div>
             )}
           </div>
@@ -126,8 +126,8 @@ export function Header() {
                 <div>
                   <div className="drop-title">Create</div>
                   <Link className="drop-item" href="/app/canvas" role="menuitem"><span className="drop-icon"><Bot size={17} /></span><span><strong>Build an agent flow</strong><span>Start with VOXFLOW&apos;s visual canvas.</span></span></Link>
-                  <Link className="drop-item" href="/resources" role="menuitem"><span className="drop-icon"><Upload size={17} /></span><span><strong>Publish automation</strong><span>Prepare a reusable solution listing.</span></span></Link>
-                  <Link className="drop-item" href="/company" role="menuitem"><span className="drop-icon"><CircleDollarSign size={17} /></span><span><strong>Creator programme</strong><span>Learn how builders earn with Ase.</span></span></Link>
+                  <Link className="drop-item" href="/resources" role="menuitem"><span className="drop-icon"><Upload size={17} /></span><span><strong>Publishing roadmap</strong><span>Review the intended path for reusable solutions.</span></span></Link>
+                  <Link className="drop-item" href="/company" role="menuitem"><span className="drop-icon"><CircleDollarSign size={17} /></span><span><strong>Creator roadmap</strong><span>Discuss future builder and commercial rails.</span></span></Link>
                 </div>
               </div>
             )}

@@ -16,7 +16,7 @@ export function Footer() {
         <div className="footer-top">
           <div className="footer-brand">
             <Brand />
-            <p>Operational intelligence that listens, understands and acts—designed for how African businesses actually run.</p>
+            <p>A governed workflow platform in development, shaped around African operating contexts and explicit human control.</p>
             <a className="footer-contact" href="mailto:hello@ase.africa">hello@ase.africa <ArrowUpRight size={14} /></a>
           </div>
           {groups.map((group) => (
@@ -26,7 +26,7 @@ export function Footer() {
             </div>
           ))}
         </div>
-        <div className="footer-bottom"><span>© 2026 Ase Technologies. All rights reserved.</span><span>Port Harcourt · Lagos · Nairobi · Johannesburg</span></div>
+        <div className="footer-bottom"><span>© 2026 Ase Technologies. All rights reserved.</span><span>Contexts in view: Port Harcourt · Lagos · Nairobi · Johannesburg</span></div>
         <div className="footer-word" aria-hidden="true">ASE / VOXFLOW</div>
       </div>
     </footer>

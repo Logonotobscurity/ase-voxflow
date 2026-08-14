@@ -1,70 +1,83 @@
 # Ase · VOXFLOW operational intelligence platform
 
-A production-style Next.js App Router experience for voice-first, multi-surface business automation focused on African operations.
+A production-style Next.js App Router experience and P0 agent/workflow foundation focused on African operations. The repository intentionally distinguishes verified deterministic demo behavior from target infrastructure.
 
-## Run
+## Run the explicit demo
 
 ```bash
 npm install
-npm run dev
+ASE_RUNTIME_MODE=demo ASE_PERSISTENCE_MODE=memory npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:3000`. Memory mode is process-local and ephemeral. API responses report it as `ephemeral-memory`.
 
 ## Routes
 
-- `/` — conversion-focused marketing experience and interactive product proof
-- `/platform` — platform overview, execution model and technical architecture
-- `/app/canvas` — interactive React Flow Visual Canvas
-- `/app/voice` — agent visualizer and realtime voice session studio
-- `/app/vendors` — searchable vendor operations command centre
-- `/marketplace` — searchable/filterable agent, template and connector marketplace
-- `/solutions` — industry entry points with contextual canvas blueprints
-- `/resources` — guides, builder paths and transparent demo-status model
+- `/` — responsive marketing experience with clearly labelled product previews
+- `/platform` — implementation/target platform map
+- `/app/canvas` — React Flow canvas backed by the canonical workflow API
+- `/app/voice` — interface-only voice visualizer and scripted session simulator
+- `/app/vendors` — searchable vendor-operations demo using sample records
+- `/marketplace` — searchable/filterable catalogue of demo concepts and targets
+- `/solutions` — illustrative industry entry points into the current canvas
+- `/resources` — architecture references, demo paths and capability boundaries
 - `/company` — purpose, principles and regional operating context
 - `/privacy`, `/terms`, `/security` — trust and legal routes
-- `/api/vendors` — Zod-validated demo vendor API
-- `/api/voice/transcribe`, `/api/voice/synthesize` — voice gateway contract demos
+- `/api/v1/workflows` — canonical workflow save/list API
+- `/api/v1/workflows/:workflowId/executions` — bounded workflow run/list API
+- `/api/v1/transactions` — idempotent transaction approval request API
+- `/api/v1/approvals/:approvalId/decision` — separation-of-duties approval API
+- `/api/v1/agent/commands` — canonical text/already-transcribed-voice proposal API with intent RBAC and atomic privacy-safe audit intent
+- `/api/v1/voice/commands` — compatibility adapter for already-transcribed voice input; it does not accept media
+- `/api/vendors` — legacy read-only sample contract; writes fail closed
+- `/api/voice/transcribe`, `/api/voice/synthesize` — deprecated provider stubs that return `501` and never fabricate media results
 
-Legacy aliases: `/log_on` redirects to `/`; `/voxflow` redirects to `/platform`. Unknown routes use a branded recovery page.
+Legacy aliases: `/log_on` redirects to `/`; `/voxflow` redirects to `/platform`. Unknown routes use the current framework not-found response.
 
-## Product decisions
+## Architecture decisions
 
 - **Ase** is the customer-facing brand; **VOXFLOW** is the workflow platform.
-- PostgreSQL 16 + Prisma is the intended operational source of truth; MongoDB is deprecated and intentionally absent from the architecture.
 - Next.js App Router is the canonical web stack.
-- Liveblocks owns canvas CRDT collaboration, WebRTC owns realtime media, NATS owns voice/workflow events, and Socket.io is reserved for mobile push/synchronisation.
-- The visual prototype uses local state and safe demo API contracts; production credentials and services are not included.
+- TypeScript/Zod domain contracts are shared by route handlers, application services, adapters and the canvas serializer.
+- PostgreSQL 16 + Prisma is the selected durable source of truth; MongoDB is deprecated and absent.
+- `ASE_PERSISTENCE_MODE=memory` is explicitly ephemeral. `postgres` selects the Prisma adapter. The existing schema, migrations, adapters, transactions, and pre-command HTTP paths passed disposable PostgreSQL 16.15 verification; the later command-publication path remains **UNVERIFIED on live PostgreSQL** after cluster teardown.
+- Liveblocks owns the future canvas CRDT boundary, WebRTC media, NATS voice/domain events, and Socket.io mobile push/synchronisation. None is currently integrated.
+- LLM planning providers, external tools, payment/ERP side effects, live media, telephony, avatars, vision, restaurant APIs, and production identity verification are not implemented. Unsupported external execution fails closed.
+- Transaction, approval, event-log, and pending outbox-intent writes share one unit-of-work boundary. The Prisma implementation uses a serializable interactive transaction with bounded conflict retries and passed live PostgreSQL rollback/concurrency verification.
+- Transaction approval changes an internal record to `AUTHORIZED`; it does not send funds, issue an external purchase order, or claim that a pending outbox message was delivered.
 
-## Design system
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for code flows, policy boundaries, verified evidence and limitations. The implementation-aligned UX and claim audit is in [`docs/UX-AUDIT.md`](docs/UX-AUDIT.md); the agent/voice discovery and capability map is in [`docs/verification/agent-capability-audit-2026-08-14.md`](docs/verification/agent-capability-audit-2026-08-14.md).
 
-The responsive editorial-technical system uses amber `#ffcc33`, ink `#22221f`, cream/paper surfaces, hard linework, dotted technical fields, schematic workflows and short transitions. `app/globals.css` retains functional component foundations; `app/revamp.css` applies the current system.
+## Persistence setup
 
-The full audit and validation record is in [`docs/UX-AUDIT.md`](docs/UX-AUDIT.md).
-
-## Netlify deployment
-
-**Production:** [https://ase-voxflow.netlify.app](https://ase-voxflow.netlify.app)
-
-The repository includes `netlify.toml` for Netlify’s OpenNext runtime:
-
-- Build command: `npm run build`
-- Publish directory: `.next`
-- Node.js: 22.13
-- App Router, API routes, redirects and PWA assets are supported by Netlify’s automatic Next.js adapter.
-
-Deploy from the repository in Netlify, or from the CLI:
+Prisma 7 generates its client into `app/generated/prisma` (ignored and regenerated during install).
 
 ```bash
-npx netlify-cli deploy --build --prod
+npm run db:validate
+npm run db:generate
 ```
 
-Configure production secrets in **Netlify → Site configuration → Environment variables**. Do not commit credentials.
+To select PostgreSQL:
+
+```bash
+DATABASE_URL='postgresql://...' \
+ASE_RUNTIME_MODE=demo \
+ASE_PERSISTENCE_MODE=postgres \
+npm run dev
+```
+
+Do not use the spoofable demo identity mode in production. Migration deployment and rollback guidance is documented in `docs/ARCHITECTURE.md`.
 
 ## Quality checks
 
 ```bash
-npm run build
+npm run validate
 ```
 
-The project includes responsive breakpoints, reduced-motion support, keyboard-visible focus states, 44px touch targets, a PWA manifest/service worker shell, contextual template handoff and Escape/backdrop/focus handling for primary dialogs.
+This runs ESLint, strict TypeScript, Vitest and the optimized Next.js build. As of 14 August 2026, the post-command suite passes 8 files / 35 standard tests with 5 opt-in PostgreSQL tests skipped after disposable-cluster teardown. Prisma generate/validate, lint, typecheck, Python smoke syntax, diff whitespace, and all 24 routes pass. The rebuilt production demo/memory server passes 22 canonical HTTP checks and 6 legacy fail-closed checks. With an optimized demo/memory server listening on port 3000, rerun the HTTP suite with `python3 scripts/http-smoke.py`. Prior PostgreSQL 16.15 evidence is in `docs/verification/postgresql-16-2026-08-14.md`; the new command path on live PostgreSQL and browser automation remain unverified.
+
+## Netlify deployment
+
+**Production demo:** [https://ase-voxflow.netlify.app](https://ase-voxflow.netlify.app)
+
+The repository includes `netlify.toml` for Netlify’s Next.js/OpenNext runtime. The production site currently runs the explicitly ephemeral demo/memory configuration; it is not a durable production backend. Before enabling real production operations, provide trusted identity verification, provision PostgreSQL from the verified migrations, rerun the command path against PostgreSQL, configure secret management, and implement a monitored outbox dispatcher.

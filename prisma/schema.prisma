@@ -1,0 +1,262 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TenantRole {
+  ADMIN
+  BUILDER
+  OPERATOR
+  APPROVER
+  VIEWER
+}
+
+enum AgentStatus {
+  REGISTERED
+  READY
+  RUNNING
+  WAITING
+  PAUSED
+  COMPLETED
+  FAILED
+}
+
+enum WorkflowStatus {
+  DRAFT
+  READY
+  PAUSED
+  ARCHIVED
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  WAITING_APPROVAL
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TransactionStatus {
+  CREATED
+  AUTHORIZED
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REVERSED
+}
+
+enum ApprovalStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+model Tenant {
+  id           String              @id
+  slug         String              @unique
+  name         String
+  settings     Json                @default("{}")
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  members      TenantMember[]
+  agents       Agent[]
+  tools        ToolDefinition[]
+  workflows    Workflow[]
+  executions   WorkflowExecution[]
+  events       DomainEvent[]
+  transactions Transaction[]
+  approvals    HumanApproval[]
+  outbox       OutboxMessage[]
+}
+
+model TenantMember {
+  id        String     @id @default(cuid())
+  tenantId  String
+  actorId   String
+  role      TenantRole
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, actorId])
+  @@index([actorId])
+}
+
+model Agent {
+  id           String      @id
+  tenantId     String
+  name         String
+  description  String
+  role         String
+  status       AgentStatus @default(REGISTERED)
+  goals        Json
+  instructions String
+  toolIds      Json
+  capabilities Json
+  permissions  Json
+  policies     Json
+  metadata     Json        @default("{}")
+  version      Int         @default(1)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  tenant       Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([tenantId, updatedAt])
+}
+
+model ToolDefinition {
+  id           String   @id
+  tenantId     String
+  name         String
+  description  String
+  inputSchema  Json
+  permissions  Json
+  riskLevel    String
+  timeoutMs    Int
+  cost         Json
+  availability String
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name])
+  @@index([tenantId, availability])
+}
+
+model Workflow {
+  id          String         @id
+  tenantId    String
+  name        String
+  description String
+  status      WorkflowStatus @default(DRAFT)
+  version     Int            @default(1)
+  nodes       Json
+  edges       Json
+  metadata    Json           @default("{}")
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  executions  WorkflowExecution[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, updatedAt])
+}
+
+model WorkflowExecution {
+  id            String          @id
+  tenantId      String
+  workflowId    String
+  status        ExecutionStatus @default(PENDING)
+  input         Json
+  output        Json?
+  nodeResults   Json
+  correlationId String
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workflow      Workflow        @relation(fields: [workflowId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, status])
+  @@index([tenantId, workflowId, createdAt])
+  @@index([correlationId])
+}
+
+model Transaction {
+  id             String            @id
+  tenantId       String
+  agentId        String?
+  type           String
+  amountMinor    BigInt
+  currency       String
+  recipient      String
+  status         TransactionStatus @default(CREATED)
+  authorization  Json?
+  idempotencyKey String
+  metadata       Json              @default("{}")
+  createdAt      DateTime          @default(now())
+  completedAt    DateTime?
+  updatedAt      DateTime          @updatedAt
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, agentId])
+}
+
+model HumanApproval {
+  id           String         @id
+  tenantId     String
+  resourceType String
+  resourceId   String
+  status       ApprovalStatus @default(REQUESTED)
+  requestedBy  String
+  decidedBy    String?
+  reason       String?
+  metadata     Json           @default("{}")
+  requestedAt  DateTime       @default(now())
+  decidedAt    DateTime?
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status, requestedAt])
+  @@index([tenantId, resourceType, resourceId])
+}
+
+model DomainEvent {
+  id            String         @id
+  tenantId      String
+  eventType     String
+  schemaVersion Int            @default(1)
+  occurredAt    DateTime       @default(now())
+  actorId       String?
+  correlationId String
+  causationId   String?
+  aggregateType String
+  aggregateId   String
+  payload       Json
+  metadata      Json           @default("{}")
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outbox        OutboxMessage?
+
+  @@index([tenantId, eventType, occurredAt])
+  @@index([tenantId, aggregateType, aggregateId, occurredAt])
+  @@index([correlationId])
+}
+
+model OutboxMessage {
+  id          String       @id
+  tenantId    String
+  eventId     String       @unique
+  topic       String
+  payload     Json
+  status      OutboxStatus @default(PENDING)
+  attempts    Int          @default(0)
+  availableAt DateTime     @default(now())
+  publishedAt DateTime?
+  lastError   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  event       DomainEvent  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status, availableAt])
+  @@index([topic, status, availableAt])
+}

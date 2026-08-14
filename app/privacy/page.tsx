@@ -4,10 +4,10 @@ import { LegalPage } from '@/components/LegalPage';
 export const metadata: Metadata = { title: 'Privacy' };
 
 export default function PrivacyPage() {
-  return <LegalPage eyebrow="Trust centre" title="Privacy that follows the work." intro="This product preview is designed around data minimisation, explicit controls and transparent processing." sections={[
-    { title: 'What we collect', body: 'Ase may process account details, workflow configuration, usage telemetry and business records that an authorised customer chooses to connect. This demonstration does not request payment information.' },
-    { title: 'How data is used', body: 'Data is used to provide workflow, voice, collaboration and support experiences; maintain security; and improve product reliability. Customer business records are not sold.' },
-    { title: 'Voice and media', body: 'Voice or media is processed only when a user starts the relevant experience. Production deployments should apply customer-defined retention, consent and regional processing controls.' },
-    { title: 'Your choices', body: 'Administrators can define access, retention and integration scopes. Individuals can request access, correction or deletion through the organisation responsible for their workspace.' },
+  return <LegalPage eyebrow="Trust centre" title="Privacy that follows the work." intro="This page records design principles for the Ase product preview. It is not a certification, production guarantee or substitute for signed customer terms." sections={[
+    { title: 'Current preview boundary', body: 'The repository includes demo identity and memory-mode execution paths. It does not prove a production account, telemetry, retention or customer-data programme, and no payment information is requested by the preview.' },
+    { title: 'Intended data use', body: 'A production deployment may need account details, workflow configuration, operational records and service telemetry to deliver agreed features. Collection, purpose, processors and retention must be documented for that deployment.' },
+    { title: 'Voice and media', body: 'The current legacy transcription and synthesis provider routes fail closed; they do not produce or retain provider media results. Any future provider integration must add explicit consent, retention and regional-processing controls.' },
+    { title: 'Administrative controls', body: 'Canonical policy and approval contracts exist, but production identity, administrator access, deletion operations and tenant provisioning remain deployment work. Applicable rights should be exercised through the organisation responsible for a future workspace.' },
   ]} />;
 }
