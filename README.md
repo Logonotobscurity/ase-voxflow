@@ -34,6 +34,23 @@ Legacy aliases: `/log_on` redirects to `/`; `/voxflow` redirects to `/platform`.
 - Liveblocks is intended for canvas collaboration, WebRTC for media, NATS for voice events, and Socket.io only for the mobile sync bridge.
 - The visual prototype uses local state and safe demo API contracts; production credentials/services are not included.
 
+## Netlify deployment
+
+The repository includes `netlify.toml` for Netlify’s OpenNext runtime:
+
+- Build command: `npm run build`
+- Publish directory: `.next`
+- Node.js: 22.13
+- App Router, API routes, SSR, and PWA assets are supported by Netlify’s automatic Next.js adapter.
+
+Deploy from the repository in Netlify, or from the CLI:
+
+```bash
+npx netlify-cli deploy --build --prod
+```
+
+Configure production secrets in **Netlify → Site configuration → Environment variables**. Do not commit credentials.
+
 ## Quality checks
 
 ```bash
