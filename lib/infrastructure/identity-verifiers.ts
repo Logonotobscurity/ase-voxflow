@@ -88,6 +88,19 @@ export class BearerTokenIdentityVerifier implements IdentityVerifier {
   }
 
   async verify(request: { headers: Headers }): Promise<VerifiedIdentity> {
+    // Defense in depth: the composition root picks this verifier only
+    // when `ASE_RUNTIME_MODE !== 'demo'`. A misconfigured deploy that
+    // leaves the runtime in demo mode would otherwise fall back to
+    // the spoofable-header path. The verifier itself refuses to
+    // verify in demo mode so a runtime misconfiguration cannot
+    // silently re-open the audit §1 attack surface.
+    if (process.env.ASE_RUNTIME_MODE === 'demo') {
+      throw new PlatformError(
+        'CONFIGURATION_ERROR',
+        'BearerTokenIdentityVerifier refuses to verify in ASE_RUNTIME_MODE=demo. ' +
+        'The demo verifier is the only one allowed in demo mode.',
+      );
+    }
     const header = request.headers.get('authorization') ?? '';
     const match = /^Bearer\s+(.+)$/i.exec(header);
     if (!match) {

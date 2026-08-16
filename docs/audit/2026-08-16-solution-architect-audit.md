@@ -1,9 +1,9 @@
 # Solution-architect audit — 2026-08-16
 
-**Scope:** the state of the platform on commit `1ba7004` (after the
-identity and outbox-dispatcher commits) against the architecture
-document, the capability audit, and the audit findings recorded in
-this session.
+**Scope:** the state of the platform on commit `32e956d` (after the
+identity, outbox-dispatcher, and dispatcher-wiring commits) against
+the architecture document, the capability audit, and the audit
+findings recorded in this session.
 
 **Audit stance:** the bounded runtime, the canonical contracts, and
 the agent/command/workflow separation are sound. The platform's
@@ -20,10 +20,14 @@ ones referenced in §1.
 |---|---|---|---|
 | 1 | Demo identity was the only auth path; production deploys would 500 | CRITICAL | `220fe49` — real `IdentityVerifier` + `TenantMembershipRepository` |
 | 2 | Outbox dispatcher did not exist; PENDING rows sat forever | HIGH | `1ba7004` — claim/lease with bounded retry and dead-letter |
+| 2b | Even after `1ba7004`, the dispatcher was not wired into `getPlatform()`; production deploys would still ignore the dispatcher | HIGH | `32e956d` — instantiated `OutboxDispatcher` in the composition root with opt-in loop control |
 | 3 | `app/generated/prisma/` gitignored + `postinstall: prisma generate` made `npm ci` depend on `binaries.prisma.sh` | MEDIUM | (in this commit) — added `prebuild`, removed `postinstall`; deleted dormant `prisma-extension-adapters.ts` |
 | 4 | The word "evidence" was used for in-process `state_change` records that are not external verification | MEDIUM | (in this commit) — renamed `state_change` to `internal_trace`; `external_reference` is now the only kind that earns the word "evidence" in any audit context |
+| 4b | The `state_change` rename missed 4 test-file occurrences; the test runtime passed (vitest does not run tsc) but the typecheck rejected them | MEDIUM | `32e956d` — updated 4 occurrences across 2 test files |
 | 5 | Three high npm audit findings had no documented plan | MEDIUM | `docs/security/accepted-risks.md` — accepted in writing with mitigation evidence and review date |
 | 6 | Marketing copy and audit findings could disagree | LOW | the marketing site already used "Preview" and "Scripted"; verified, no further action |
+| 7 | `.env.example` did not document the new env vars introduced in `220fe49` and `1ba7004` (production deploys would not know about `ASE_PROD_BEARER_TOKEN` or the outbox tunables) | MEDIUM | (in this commit) — `.env.example` rewritten with all current env vars, defaults, and the audit/§3 cross-reference |
+| 8 | `BearerTokenIdentityVerifier` did not refuse to verify in demo mode; a misconfigured production deploy that still had `ASE_RUNTIME_MODE=demo` would silently fall back to the spoofable-header path | MEDIUM | (in this commit) — symmetric runtime-mode guard added; +1 test |
 
 Items 1 and 2 are closed by their own commits and verified in their
 test suites. Items 3, 4, 5, 6 are addressed in this commit and the

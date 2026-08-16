@@ -1,11 +1,15 @@
 /**
  * Audit §1 — Identity layer tests.
  *
- * Pins the four guarantees the audit called out:
+ * Pins the five guarantees the audit called out:
  *   1. The demo verifier is active only in `ASE_RUNTIME_MODE=demo`.
- *   2. The bearer verifier refuses to verify a missing/malformed/short token.
+ *   2. The bearer verifier refuses to verify in demo mode AND refuses
+ *      a missing/malformed/short token.
  *   3. The reconciliation layer refuses a missing membership.
  *   4. The reconciliation layer refuses a role-mismatched membership.
+ *   5. The bearer verifier's runtime-mode guard is symmetric to the
+ *      demo verifier's, so a misconfigured production deploy cannot
+ *      fall back to spoofable headers.
  *
  * The bearer verifier's constant-time compare is exercised through the
  * public `verify` surface; we don't reach into the helper.
@@ -22,15 +26,19 @@ import {
 import { InMemoryTenantMembershipRepository, InMemoryPlatformStore } from '../lib/infrastructure/memory-adapters';
 import { PlatformError } from '../lib/domain/errors';
 
-const ORIGINAL_RUNTIME = process.env.ASE_RUNTIME_MODE;
-
-beforeEach(() => {
-  process.env.ASE_RUNTIME_MODE = 'demo';
-});
+// Capture all env vars the tests touch so a future test in another
+// file that mutated them does not leak into this file's expectations.
+const ORIGINAL: Record<string, string | undefined> = {
+  ASE_RUNTIME_MODE: process.env.ASE_RUNTIME_MODE,
+  ASE_PERSISTENCE_MODE: process.env.ASE_PERSISTENCE_MODE,
+  ASE_PROD_BEARER_TOKEN: process.env.ASE_PROD_BEARER_TOKEN,
+};
 
 afterEach(() => {
-  if (ORIGINAL_RUNTIME === undefined) delete process.env.ASE_RUNTIME_MODE;
-  else process.env.ASE_RUNTIME_MODE = ORIGINAL_RUNTIME;
+  for (const [key, value] of Object.entries(ORIGINAL)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 });
 
 function headers(entries: Record<string, string>): Headers {
@@ -38,6 +46,10 @@ function headers(entries: Record<string, string>): Headers {
 }
 
 describe('DemoHeaderIdentityVerifier', () => {
+  beforeEach(() => {
+    process.env.ASE_RUNTIME_MODE = 'demo';
+  });
+
   it('verifies in demo mode using the spoofable headers', async () => {
     const verifier = new DemoHeaderIdentityVerifier();
     const identity = await verifier.verify({
@@ -72,9 +84,14 @@ describe('DemoHeaderIdentityVerifier', () => {
 
 describe('BearerTokenIdentityVerifier', () => {
   const secret = 'a-very-long-deploy-token-1234567890';
-  const verifier = new BearerTokenIdentityVerifier(secret);
+
+  beforeEach(() => {
+    // Bearer verifier is only active in non-demo modes.
+    process.env.ASE_RUNTIME_MODE = 'production';
+  });
 
   it('verifies when the bearer token matches the configured secret', async () => {
+    const verifier = new BearerTokenIdentityVerifier(secret);
     const identity = await verifier.verify({
       headers: headers({ authorization: `Bearer ${secret}`, 'x-ase-actor-id': 'actor_deploy' }),
     });
@@ -84,17 +101,27 @@ describe('BearerTokenIdentityVerifier', () => {
   });
 
   it('refuses a missing Authorization header', async () => {
+    const verifier = new BearerTokenIdentityVerifier(secret);
     await expect(verifier.verify({ headers: headers({}) })).rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED' });
   });
 
   it('refuses a malformed Authorization header', async () => {
+    const verifier = new BearerTokenIdentityVerifier(secret);
     await expect(verifier.verify({ headers: headers({ authorization: 'Basic abc' }) }))
       .rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED' });
   });
 
   it('refuses a bearer token that does not match the configured secret', async () => {
+    const verifier = new BearerTokenIdentityVerifier(secret);
     await expect(verifier.verify({ headers: headers({ authorization: 'Bearer wrong-token-1234567890' }) }))
       .rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED' });
+  });
+
+  it('refuses to verify when the runtime mode is demo (defense in depth)', async () => {
+    process.env.ASE_RUNTIME_MODE = 'demo';
+    const verifier = new BearerTokenIdentityVerifier(secret);
+    await expect(verifier.verify({ headers: headers({ authorization: `Bearer ${secret}` }) }))
+      .rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
   });
 
   it('refers to short or empty secrets at construction time', () => {
@@ -107,13 +134,8 @@ describe('reconcileActorContext', () => {
   const store = new InMemoryPlatformStore();
   const memberships = new InMemoryTenantMembershipRepository(store);
 
-  beforeEach(() => {
-    // Reset the store between tests by creating a fresh one.
-    // (the `beforeEach` in the describe above is a no-op for store;
-    // individual tests do their own setup.)
-  });
-
   it('throws AUTHENTICATION_REQUIRED when there is no membership', async () => {
+    process.env.ASE_RUNTIME_MODE = 'demo';
     await expect(
       reconcileActorContext(
         {
@@ -131,6 +153,7 @@ describe('reconcileActorContext', () => {
   });
 
   it('returns an ActorContext when the membership exists and the role matches', async () => {
+    process.env.ASE_RUNTIME_MODE = 'demo';
     await memberships.upsert({ tenantId: 'tenant_demo', actorId: 'actor_ada', role: 'BUILDER' });
     const ctx = await reconcileActorContext(
       {
@@ -154,6 +177,7 @@ describe('reconcileActorContext', () => {
   });
 
   it('throws AUTHORIZATION_DENIED when the membership role does not match the claim', async () => {
+    process.env.ASE_RUNTIME_MODE = 'demo';
     await memberships.upsert({ tenantId: 'tenant_demo', actorId: 'actor_ada', role: 'VIEWER' });
     await expect(
       reconcileActorContext(

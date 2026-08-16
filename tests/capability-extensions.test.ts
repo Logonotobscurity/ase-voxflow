@@ -82,6 +82,29 @@ describe('Capability 04 — AgentCommandService emits participant/session metada
     });
     expect(proposal.command.intent).toBe('add_node');
   });
+
+  it('audit payload contains entityKeys but excludes entity values', async () => {
+    const ports = memoryPorts();
+    const service = new AgentCommandService(ports);
+    // "add a condition node after step 2" triggers entity extraction
+    // for `nodeType: 'condition'` and `after: 'step 2'` in the
+    // classifier. The audit payload must surface the keys, not the
+    // values, so a leaked event does not expose extracted entities.
+    const proposal = await service.propose({
+      text: 'add a condition node after step 2',
+      modality: 'TEXT',
+      context: actorContext,
+    });
+    expect(proposal.command.entities).toMatchObject({ nodeType: 'condition', after: 'step 2' });
+    const events = await ports.events.listByCorrelation(actorContext.tenantId, proposal.command.correlationId);
+    expect(events).toHaveLength(1);
+    const payload = events[0].payload as Record<string, unknown>;
+    expect(payload.entityKeys).toEqual(expect.arrayContaining(['nodeType', 'after']));
+    // The values must not appear in the audit payload.
+    expect(payload).not.toHaveProperty('entities');
+    expect(payload).not.toHaveProperty('nodeType');
+    expect(payload).not.toHaveProperty('after');
+  });
 });
 
 describe('Capability 07 — Structured AgentProposal union and TtsCue', () => {
