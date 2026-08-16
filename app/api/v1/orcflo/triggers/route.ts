@@ -21,8 +21,8 @@ export async function GET(request: NextRequest) {
     const kindParam = request.nextUrl.searchParams.get('kind');
     const platform = getPlatform();
     const triggers = await platform.triggers.list(context, {
-      kind: kindParam && ['manual', 'schedule', 'webhook', 'event'].includes(kindParam)
-        ? kindParam as 'manual' | 'schedule' | 'webhook' | 'event'
+      kind: kindParam && ['manual', 'schedule', 'webhook', 'event', 'public'].includes(kindParam)
+        ? kindParam as 'manual' | 'schedule' | 'webhook' | 'event' | 'public'
         : undefined,
     });
     return apiSuccess({ triggers, persistence: platform.persistence });

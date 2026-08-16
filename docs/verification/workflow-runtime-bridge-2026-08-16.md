@@ -8,6 +8,8 @@
 
 **Follow-up increment (same day): run idempotency (§48).** `OrcfloRun.idempotencyKey` unique per tenant; engine replays duplicate-key starts; webhook/event triggers derive keys from (trigger, payload) so duplicate deliveries dedupe; explicit key via header/body. Detailed evidence in `docs/verification/orcflo-engine-2026-08-16.md` §13.
 
+**Follow-up increment (same day): public workflow interfaces (§34).** New `public` trigger kind exposes a READY workflow anonymously via `POST /api/v1/orcflo/interfaces/:slug/run` with input-schema validation, per-interface rate/daily-run/cost limits, idempotency, and a synthetic execute-only `PUBLIC` role; policy gates still apply. Detailed evidence in `docs/verification/orcflo-engine-2026-08-16.md` §14.
+
 ## 1. What this increment adds
 
 | Piece | Location | Behavior verified |
@@ -92,7 +94,7 @@ Legend: ✅ implemented in this or the prior Orcflo increment · 🟡 partial (c
 | 31 | Webhook: auth → signature → validation → idempotency | 🟡 | Webhook fire is key-authenticated (`NOT_FOUND` on bad key), input-validated; signature verification + idempotency: future. |
 | 32 | Schedule: cron, timezone, enabled, last/next run, failure policy | 🟡 | cron + timezone + enabled + lastFiredAt + once-per-bucket drain; `next_run`/`failure_policy` + durable scheduler: future. |
 | 33 | App events → workflow, reuse event architecture | 🟡 | `event` trigger fires explicitly; automatic event-bus wiring (NATS) + no duplicate bus: future. |
-| 34 | Public interfaces with rate/cost limits | ⬜ | Future. |
+| 34 | Public interfaces with rate/cost limits | ✅ | New `public` trigger kind: anonymous `POST /api/v1/orcflo/interfaces/:slug/run` with deterministic input-schema validation, per-interface rate limiting + daily run caps, cost/duration bounds, idempotency, and a synthetic execute-only `PUBLIC` role (never a membership role) — node/agent/tool policies still apply. Added 2026-08-16 public-interfaces increment. |
 | 35 | Blueprints, no secret leakage | ✅ | `OrcfloBlueprint`; instantiation only substitutes declared params; secrets never templated. |
 | 36 | Versioning: draft/published/archived, runs pin versions | 🟡 | `WorkflowStatus` DRAFT/READY/PAUSED/ARCHIVED; version increments on save; cache pins version. Explicit version history table: future. |
 | 37 | Collaboration: OWNER/EDITOR/RUNNER/VIEWER server-side | 🟡 | Tenant roles (ADMIN/BUILDER/OPERATOR/APPROVER/VIEWER) + server-side RBAC; per-workflow ownership: future. |

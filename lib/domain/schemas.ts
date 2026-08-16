@@ -4,7 +4,7 @@ export const IdSchema = z.string().trim().min(1).max(200);
 export const DateTimeSchema = z.string().datetime();
 export const MetadataSchema = z.record(z.string(), z.unknown()).default({});
 
-export const TenantRoleSchema = z.enum(['ADMIN', 'BUILDER', 'OPERATOR', 'APPROVER', 'VIEWER']);
+export const TenantRoleSchema = z.enum(['ADMIN', 'BUILDER', 'OPERATOR', 'APPROVER', 'VIEWER', 'PUBLIC']);
 export type TenantRole = z.infer<typeof TenantRoleSchema>;
 
 export const AgentStatusSchema = z.enum([

@@ -691,6 +691,14 @@ export class PrismaOrcfloTriggerRepository implements OrcfloTriggerRepository {
     const row = await this.prisma.orcfloTrigger.findFirst({ where: { id, tenantId } });
     return row ? mapOrcfloTrigger(row) : null;
   }
+  async findPublicBySlug(slug: string) {
+    // §34 — public slug lives in the JSON `config`; Postgres jsonb path
+    // filter resolves it without a dedicated column.
+    const row = await this.prisma.orcfloTrigger.findFirst({
+      where: { kind: 'public', config: { path: ['slug'], equals: slug } },
+    });
+    return row ? mapOrcfloTrigger(row) : null;
+  }
   async list(tenantId: string, options: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean } = {}) {
     const rows = await this.prisma.orcfloTrigger.findMany({
       where: {

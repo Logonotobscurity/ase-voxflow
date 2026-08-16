@@ -62,7 +62,7 @@ export const OrcfloStepResultSchema = z.object({
 }).strict();
 export type OrcfloStepResult = z.infer<typeof OrcfloStepResultSchema>;
 
-export const OrcfloTriggerKindSchema = z.enum(['manual', 'schedule', 'webhook', 'event']);
+export const OrcfloTriggerKindSchema = z.enum(['manual', 'schedule', 'webhook', 'event', 'public']);
 export type OrcfloTriggerKind = z.infer<typeof OrcfloTriggerKindSchema>;
 
 export const OrcfloRunSchema = z.object({
@@ -264,11 +264,44 @@ export const EventTriggerConfigSchema = z.object({
 }).strict();
 export type EventTriggerConfig = z.infer<typeof EventTriggerConfigSchema>;
 
+/**
+ * §34 — Public interface (public form) trigger.
+ *
+ * A workflow exposed to anonymous callers. `slug` identifies the
+ * interface publicly (`pub_…`); `inputSchema` declares the accepted
+ * input shape (validated at run time); rate/run/cost limits bound
+ * abuse; `environment` is the synthetic caller environment for the
+ * run (node/agent policies still apply, so a public interface cannot
+ * bypass a tenant's policy gates).
+ */
+export const PublicInputFieldTypeSchema = z.enum(['string', 'number', 'boolean', 'json']);
+export type PublicInputFieldType = z.infer<typeof PublicInputFieldTypeSchema>;
+
+export const PublicInputFieldSchema = z.object({
+  type: PublicInputFieldTypeSchema,
+  required: z.boolean().default(true),
+  default: z.unknown().optional(),
+}).strict();
+export type PublicInputField = z.infer<typeof PublicInputFieldSchema>;
+
+export const PublicTriggerConfigSchema = z.object({
+  /** Public slug; generated (`pub_…`) when omitted at creation. */
+  slug: z.string().regex(/^pub_[a-z0-9_-]{8,64}$/).optional(),
+  inputSchema: z.record(z.string(), PublicInputFieldSchema).default({}),
+  rateLimitPerMinute: z.number().int().min(1).max(1_000).default(10),
+  maxRunsPerDay: z.number().int().min(1).max(100_000).default(100),
+  maxCostMinor: z.number().int().nonnegative().max(100_000_000).default(100_000),
+  maxDurationMs: z.number().int().min(100).max(120_000).default(30_000),
+  environment: z.enum(['demo', 'development', 'staging', 'production']).default('demo'),
+}).strict();
+export type PublicTriggerConfig = z.infer<typeof PublicTriggerConfigSchema>;
+
 export const OrcfloTriggerSchema = z.discriminatedUnion('kind', [
   z.object({ ...CommonTriggerFields, kind: z.literal('manual'), config: ManualTriggerConfigSchema }).strict(),
   z.object({ ...CommonTriggerFields, kind: z.literal('schedule'), config: ScheduleTriggerConfigSchema }).strict(),
   z.object({ ...CommonTriggerFields, kind: z.literal('webhook'), config: WebhookTriggerConfigSchema }).strict(),
   z.object({ ...CommonTriggerFields, kind: z.literal('event'), config: EventTriggerConfigSchema }).strict(),
+  z.object({ ...CommonTriggerFields, kind: z.literal('public'), config: PublicTriggerConfigSchema }).strict(),
 ]);
 export type OrcfloTrigger = z.infer<typeof OrcfloTriggerSchema>;
 

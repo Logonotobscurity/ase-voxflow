@@ -189,10 +189,13 @@ export interface TranscriptRepository {
  * given tenant, as provisioned by the tenant administrator. The
  * identity layer calls it after the verifier identifies the actor.
  */
+export type MembershipRole = Exclude<import('../domain/schemas').TenantRole, 'PUBLIC'>;
+
 export interface TenantMembership {
   tenantId: string;
   actorId: string;
-  role: import('../domain/schemas').TenantRole;
+  /** PUBLIC is a synthetic execute-only role for anonymous public-interface callers; it is never a membership role. */
+  role: MembershipRole;
 }
 
 export interface TenantMembershipRepository {
@@ -364,6 +367,12 @@ export interface OrcfloModelProviderRepository {
 
 export interface OrcfloTriggerRepository {
   findById(tenantId: string, id: string): Promise<OrcfloTrigger | null>;
+  /**
+   * §34 — public interfaces are invoked anonymously by `slug`, so the
+   * lookup is deliberately cross-tenant (the slug is globally unique in
+   * practice; the config stores it and both adapters enforce the check).
+   */
+  findPublicBySlug(slug: string): Promise<OrcfloTrigger | null>;
   save(trigger: OrcfloTrigger): Promise<void>;
   list(tenantId: string, options?: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean }): Promise<OrcfloTrigger[]>;
 }

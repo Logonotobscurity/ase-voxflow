@@ -20,6 +20,9 @@ let postInstantiate: typeof import('../app/api/v1/orcflo/blueprints/[blueprintId
 let getWorkflowTool: typeof import('../app/api/v1/orcflo/workflows/[workflowId]/tool/route').GET;
 let postWorkflowTool: typeof import('../app/api/v1/orcflo/workflows/[workflowId]/tool/route').POST;
 let deleteWorkflowTool: typeof import('../app/api/v1/orcflo/workflows/[workflowId]/tool/route').DELETE;
+let postInterfaces: typeof import('../app/api/v1/orcflo/interfaces/route').POST;
+let getInterfaces: typeof import('../app/api/v1/orcflo/interfaces/route').GET;
+let postInterfaceRun: typeof import('../app/api/v1/orcflo/interfaces/[slug]/run/route').POST;
 
 beforeAll(async () => {
   process.env.ASE_RUNTIME_MODE = 'demo';
@@ -38,6 +41,8 @@ beforeAll(async () => {
   ({ POST: postBlueprints } = await import('../app/api/v1/orcflo/blueprints/route'));
   ({ POST: postInstantiate } = await import('../app/api/v1/orcflo/blueprints/[blueprintId]/instantiate/route'));
   ({ GET: getWorkflowTool, POST: postWorkflowTool, DELETE: deleteWorkflowTool } = await import('../app/api/v1/orcflo/workflows/[workflowId]/tool/route'));
+  ({ POST: postInterfaces, GET: getInterfaces } = await import('../app/api/v1/orcflo/interfaces/route'));
+  ({ POST: postInterfaceRun } = await import('../app/api/v1/orcflo/interfaces/[slug]/run/route'));
 
   // Seed a READY workflow and the membership rows the demo identity
   // reconciliation requires.
@@ -352,6 +357,63 @@ describe('Orcflo HTTP routes', () => {
     const first = await postWebhookFire(withHeader(JSON.stringify({ input: { a: 1 } })), { params });
     const second = await postWebhookFire(withHeader(JSON.stringify({ input: { a: 2 } })), { params });
     expect((await second.json()).data.run.id).toBe((await first.json()).data.run.id);
+  });
+
+  it('creates a public interface and runs it anonymously with validation and rate limiting', async () => {
+    const created = await postInterfaces(request('/api/v1/orcflo/interfaces', JSON.stringify({
+      workflowId: 'workflow_orcflo_routes',
+      name: 'Route public form',
+      config: {
+        slug: 'pub_route_form_0001',
+        inputSchema: { email: { type: 'string', required: true } },
+        rateLimitPerMinute: 2,
+      },
+    })));
+    const createdPayload = await created.json();
+    expect(created.status).toBe(201);
+    expect(createdPayload.data.interface.config.slug).toBe('pub_route_form_0001');
+
+    // Anonymous invocation: NO demo headers at all.
+    const anonymous = (body: string) => new NextRequest(
+      'http://localhost/api/v1/orcflo/interfaces/pub_route_form_0001/run',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body },
+    );
+
+    const ok = await postInterfaceRun(anonymous(JSON.stringify({ input: { email: 'a@b.co' } })),
+      { params: Promise.resolve({ slug: 'pub_route_form_0001' }) });
+    const okPayload = await ok.json();
+    expect(ok.status).toBe(202);
+    expect(okPayload.data.run.status).toBe('COMPLETED');
+    expect(okPayload.data.run.triggerKind).toBe('public');
+    expect(okPayload.data.run.input).toMatchObject({ email: 'a@b.co' });
+
+    // Duplicate submission replays the same run (derived idempotency).
+    const dup = await postInterfaceRun(anonymous(JSON.stringify({ input: { email: 'a@b.co' } })),
+      { params: Promise.resolve({ slug: 'pub_route_form_0001' }) });
+    expect((await dup.json()).data.run.id).toBe(okPayload.data.run.id);
+
+    // Invalid input -> 422.
+    const bad = await postInterfaceRun(anonymous(JSON.stringify({ input: { email: 42 } })),
+      { params: Promise.resolve({ slug: 'pub_route_form_0001' }) });
+    expect(bad.status).toBe(422);
+    expect((await bad.json()).error.code).toBe('VALIDATION_ERROR');
+
+    // Rate limit (2/min) -> 429 on the third distinct payload.
+    await postInterfaceRun(anonymous(JSON.stringify({ input: { email: 'c@d.co' } })),
+      { params: Promise.resolve({ slug: 'pub_route_form_0001' }) });
+    const limited = await postInterfaceRun(anonymous(JSON.stringify({ input: { email: 'e@f.co' } })),
+      { params: Promise.resolve({ slug: 'pub_route_form_0001' }) });
+    expect(limited.status).toBe(429);
+    expect((await limited.json()).error.code).toBe('RATE_LIMITED');
+
+    // Unknown slug -> 404 without leaking existence.
+    const missing = await postInterfaceRun(anonymous(JSON.stringify({ input: {} })),
+      { params: Promise.resolve({ slug: 'pub_does_not_exist' }) });
+    expect(missing.status).toBe(404);
+
+    // Management listing is authenticated.
+    const listed = await getInterfaces(getRequest('/api/v1/orcflo/interfaces'));
+    expect((await listed.json()).data.interfaces.some((i: { config: { slug: string } }) => i.config.slug === 'pub_route_form_0001')).toBe(true);
   });
 
   it('registers a workflow as a tool, describes it, and soft-unregisters it', async () => {

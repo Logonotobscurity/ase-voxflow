@@ -70,6 +70,8 @@ type InMemoryState = {
   outbox: Map<string,OutboxMessage>;
   transcripts: Map<string, Transcript>;
   // Audit §1 — tenant memberships. Keyed by `${tenantId}::${actorId}`.
+  // PUBLIC is a synthetic execute-only role for anonymous public-interface
+  // callers and is never a membership role.
   memberships: Map<string, { tenantId: string; actorId: string; role: 'ADMIN' | 'BUILDER' | 'OPERATOR' | 'APPROVER' | 'VIEWER' }>;
   // Orcflo engine state (additive).
   orcfloRuns: Map<string, OrcfloRun>;
@@ -617,6 +619,11 @@ export class InMemoryOrcfloTriggerRepository implements OrcfloTriggerRepository 
   async findById(tenantId: string, id: string) {
     const value = this.store.state.orcfloTriggers.get(id);
     return value?.tenantId === tenantId ? copy(value) : null;
+  }
+  async findPublicBySlug(slug: string) {
+    const value = [...this.store.state.orcfloTriggers.values()]
+      .find((trigger) => trigger.kind === 'public' && trigger.config.slug === slug);
+    return value ? copy(value) : null;
   }
   async save(value: OrcfloTrigger) {
     assertTenantOwnership(this.store.state.orcfloTriggers.get(value.id), value);

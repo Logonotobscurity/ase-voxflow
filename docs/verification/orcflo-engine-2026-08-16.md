@@ -130,3 +130,16 @@ Duplicate triggers and retries no longer create duplicate runs:
 - **Schedule drain** — already once-per-minute-bucket via `lastFiredAt`; unchanged.
 
 Verified: lint + strict typecheck + 205 tests (10 engine + 4 route idempotency tests: replay-immutability, separate keys, cross-workflow conflict, short-key validation, webhook body-derived dedupe + different-payload new run, explicit-key override, event dedupe, manual retry, route replay, header override) + optimized 38-route build + migration verified on PostgreSQL 16 (PGlite).
+
+## 14. Follow-up increment — public workflow interfaces (§34)
+
+A workflow can now be exposed as an **anonymous public interface** (the "public form" flow: PUBLIC FORM → INPUT VALIDATION → WORKFLOW RUN → OUTPUT):
+
+- **New trigger kind `public`** — the canonical `OrcfloTrigger` carries `config.slug` (`pub_…`, globally unique, generated or explicit), `config.inputSchema` (declared field types: string/number/boolean/json with required/default), `rateLimitPerMinute` (default 10), `maxRunsPerDay` (default 100), `maxCostMinor` (default 100k), `maxDurationMs` (default 30s), and `environment` (default demo). Management API: `GET/POST /api/v1/orcflo/interfaces` (authenticated, `workflow:read`/`workflow:write`).
+- **Anonymous invocation** — `POST /api/v1/orcflo/interfaces/:slug/run` deliberately does NOT authenticate (there is no caller identity); abuse controls apply before any run starts. Unknown or disabled slug → `NOT_FOUND` (no existence leak).
+- **Input validation** — deterministic Zod built from `config.inputSchema`; unknown fields rejected (strict); checked **before** a rate-limit token is consumed so malformed submissions return 422 rather than being masked by a near-cap limiter.
+- **Abuse prevention** — per-interface rate limiting and a daily run cap (in-process, ephemeral; a shared limiter replaces it in multi-process production), plus cost/duration bounds passed into the run engine. Exceeding → `RATE_LIMITED` (429).
+- **Idempotency (§48)** — explicit key or derived from (interface, payload), so a double-submitted form replays instead of double-running.
+- **Synthetic `PUBLIC` role** — execute-only (`workflow:execute`), never a membership role (`MembershipRole` excludes it); node/agent/tool policies still apply, so a public interface cannot bypass tenant gates (an approval node still pauses the run). Cross-tenant slug lookup via `OrcfloTriggerRepository.findPublicBySlug` (memory scan; Prisma JSON path filter).
+
+Verified: lint + strict typecheck + 221 tests (15 service + 1 route test: creation/slug uniqueness/RBAC, anonymous run + lastFiredAt, schema validation incl. strict unknown-field rejection, defaults, NOT_FOUND for unknown/disabled, per-minute + daily limits with window reset, derived + explicit idempotency, cost limits, policy non-bypass via approval pause, route-level 202/422/429/404 + authenticated listing) + optimized 40-route build + live HTTP smoke (create → anonymous submit with default applied → duplicate replay → 422 → 429 → authenticated list).

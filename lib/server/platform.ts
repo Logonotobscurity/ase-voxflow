@@ -6,6 +6,7 @@ import { BoundedAgentRuntime } from '../application/agent-runtime';
 import { DemoModelProviderGateway, NoopModelProviderGateway } from '../application/model-providers';
 import { OrcfloBlueprintService } from '../application/orcflo-blueprints';
 import { OrcfloEngine } from '../application/orcflo-engine';
+import { OrcfloPublicInterfaceService } from '../application/orcflo-public';
 import { OrcfloTriggerService } from '../application/orcflo-triggers';
 import { TransactionService } from '../application/transaction-service';
 import {
@@ -55,6 +56,11 @@ export type PlatformApplication = {
   orcflo: OrcfloEngine;
   triggers: OrcfloTriggerService;
   blueprints: OrcfloBlueprintService;
+  /**
+   * §34 — public workflow interfaces. Anonymous, rate-limited,
+   * input-validated execution of a READY workflow through a public slug.
+   */
+  publicInterfaces: OrcfloPublicInterfaceService;
   /**
    * Orcflo bridge — workflow-as-tool registry. A READY workflow can be
    * registered as a callable tool in the canonical tool registry so the
@@ -244,6 +250,7 @@ export function getPlatform(): PlatformApplication {
     orcflo: orcfloEngine,
     triggers: new OrcfloTriggerService(orcfloPorts, orcfloEngine, clock),
     blueprints: new OrcfloBlueprintService(orcfloPorts),
+    publicInterfaces: new OrcfloPublicInterfaceService(orcfloPorts, orcfloEngine, clock),
     workflowTools: new WorkflowAsToolService(orcfloPorts),
     persistence,
     mcpServers: new EmptyMcpServerRegistry(),
