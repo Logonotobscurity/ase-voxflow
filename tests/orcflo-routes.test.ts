@@ -14,6 +14,7 @@ let postTriggers: typeof import('../app/api/v1/orcflo/triggers/route').POST;
 let postWebhookFire: typeof import('../app/api/v1/orcflo/triggers/webhook/[key]/fire/route').POST;
 let postScheduleDrain: typeof import('../app/api/v1/orcflo/triggers/schedule/drain/route').POST;
 let postEventFire: typeof import('../app/api/v1/orcflo/triggers/event/fire/route').POST;
+let postWorkflows: typeof import('../app/api/v1/workflows/route').POST;
 let postBlueprints: typeof import('../app/api/v1/orcflo/blueprints/route').POST;
 let postInstantiate: typeof import('../app/api/v1/orcflo/blueprints/[blueprintId]/instantiate/route').POST;
 let getWorkflowTool: typeof import('../app/api/v1/orcflo/workflows/[workflowId]/tool/route').GET;
@@ -33,6 +34,7 @@ beforeAll(async () => {
   ({ POST: postWebhookFire } = await import('../app/api/v1/orcflo/triggers/webhook/[key]/fire/route'));
   ({ POST: postScheduleDrain } = await import('../app/api/v1/orcflo/triggers/schedule/drain/route'));
   ({ POST: postEventFire } = await import('../app/api/v1/orcflo/triggers/event/fire/route'));
+  ({ POST: postWorkflows } = await import('../app/api/v1/workflows/route'));
   ({ POST: postBlueprints } = await import('../app/api/v1/orcflo/blueprints/route'));
   ({ POST: postInstantiate } = await import('../app/api/v1/orcflo/blueprints/[blueprintId]/instantiate/route'));
   ({ GET: getWorkflowTool, POST: postWorkflowTool, DELETE: deleteWorkflowTool } = await import('../app/api/v1/orcflo/workflows/[workflowId]/tool/route'));
@@ -240,6 +242,45 @@ describe('Orcflo HTTP routes', () => {
     const payload = await response.json();
     expect(response.status).toBe(403);
     expect(payload.error.code).toBe('AUTHORIZATION_DENIED');
+  });
+
+  it('runs a branching workflow through the Orcflo API (router + condition)', async () => {
+    // Save a READY workflow with a router and a condition through the
+    // canonical workflows API (which validates the graph), then run it.
+    const saved = await postWorkflows(request('/api/v1/workflows', JSON.stringify({
+      name: 'Branch smoke',
+      description: 'router + condition',
+      status: 'READY',
+      nodes: [
+        { id: 'start', type: 'trigger', label: 'Start', configuration: { executionMode: 'demo' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+        { id: 'route', type: 'router', label: 'Route', configuration: { routes: [{ key: 'support' }, { key: 'sales' }], pickPath: 'kind' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+        { id: 'check', type: 'condition', label: 'High value', configuration: { path: 'value', op: 'gte', value: 1000 }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+        { id: 'escalate', type: 'action', label: 'Escalate', configuration: { executionMode: 'demo' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+        { id: 'close', type: 'action', label: 'Close', configuration: { executionMode: 'demo' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'route', metadata: {} },
+        { id: 'e2', source: 'route', target: 'check', sourceHandle: 'support', metadata: {} },
+        { id: 'e3', source: 'check', target: 'escalate', condition: true, metadata: {} },
+        { id: 'e4', source: 'check', target: 'close', condition: false, metadata: {} },
+      ],
+    }), 'BUILDER'));
+    const savedPayload = await saved.json();
+    expect(saved.status).toBe(201);
+    const workflowId = savedPayload.data.workflow.id;
+
+    const runResponse = await postRuns(request('/api/v1/orcflo/runs', JSON.stringify({
+      workflowId,
+      input: { kind: 'support', value: 2500 },
+    })));
+    const runPayload = await runResponse.json();
+    expect(runResponse.status).toBe(202);
+    expect(runPayload.data.run.status).toBe('COMPLETED');
+    const byNode = new Map(runPayload.data.run.steps.map((step: { nodeId: string; status: string }) => [step.nodeId, step.status]));
+    expect(byNode.get('route')).toBe('COMPLETED');
+    expect(byNode.get('check')).toBe('COMPLETED');
+    expect(byNode.get('escalate')).toBe('COMPLETED');
+    expect(byNode.get('close')).toBe('SKIPPED');
   });
 
   it('registers a workflow as a tool, describes it, and soft-unregisters it', async () => {

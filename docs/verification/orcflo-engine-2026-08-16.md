@@ -100,3 +100,14 @@ See `docs/ARCHITECTURE.md` §5 for the governing decision-log entry (2026-08-16)
 ## 10. Follow-up increment — AGENT ⇄ WORKFLOW bridge
 
 This PR was extended with the two interop bridges the workflow directive calls the most important addition: **Workflow-as-Tool** (an agent can call a published workflow as a canonical tool, with correlation, parent execution id, and a recursion depth limit) and **Agent-as-Node** (workflow `agent` nodes execute through the canonical `BoundedAgentRuntime`, never a second agent implementation; the direct-provider path moved to a new `ai_model` node type). The full WORKFLOW ENGINE & VISUAL AUTOMATION DIRECTIVE is captured at `docs/WORKFLOW-ENGINE-DIRECTIVE.md`; the 56-section compliance map and bridge verification are in `docs/verification/workflow-runtime-bridge-2026-08-16.md`.
+
+## 11. Follow-up increment — deterministic control flow (§12–§14, §45)
+
+The Orcflo engine now executes graphs, not linear topo passes:
+
+- **Conditional edges (§12)** — `condition` nodes evaluate deterministic dot-path comparisons (`configuration.path` + `op` in eq/neq/gt/gte/lt/lte/exists/truthy + `value`) in code, never via an LLM. Edges carry `condition: true/false` and fire only when the source output (or its `result` field) matches. Untaken branches are recorded as `SKIPPED` steps in run history.
+- **Router nodes (§13)** — `router` nodes with `configuration.routes` select a route from `configuration.pickPath` (default `route`) with an optional `defaultRoute`, output `{ route }`, and fire only the edge whose `sourceHandle` matches. No match → run `FAILED` with a machine-readable reason.
+- **Bounded loops (§14)** — `for_each` nodes iterate `configuration.collection` with `maxItems`/`maxIterations` safety limits; the body consumes `input.item` / `input.index` / `input.iteration`; a `loop: true` back edge returns to the head and `loopExit: true` edges fire when done. Limit violations fail the run with clear reasons; a global per-run node-execution cap (`maxNodeExecutions`, default 1000) is the final safety net.
+- **Loop-aware validation (§45)** — cycles are accepted only as bounded loops: every `loop` edge must target a `for_each` head, every such head needs a `loopExit` edge, nested loops are rejected, and router edges must carry a matching `sourceHandle`. The legacy linear `WorkflowRunner` refuses loop workflows with `CONFLICT` (use the Orcflo engine).
+
+Verified: lint + strict typecheck + 185 tests (25 new control-flow tests incl. branch/skip/route/loop/validation/merge invariants) + optimized 38-route build + live HTTP smoke (3-item loop iterates 3× then exits; router fires only the chosen branch; metering counts executed steps).

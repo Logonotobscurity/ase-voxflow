@@ -49,6 +49,16 @@ export class WorkflowRunner {
       throw new PlatformError('CONFLICT', `Workflow ${workflow.id} must be READY before execution.`);
     }
     validateWorkflowGraph(workflow);
+    // Orcflo control flow: the legacy linear runner has no loop
+    // semantics. Bounded loops (and per-edge branching) require the
+    // Orcflo engine; refusing here keeps behavior honest instead of
+    // running a loop graph as a single linear pass.
+    if (workflow.edges.some((edge) => edge.loop === true)) {
+      throw new PlatformError(
+        'CONFLICT',
+        `Workflow ${workflow.id} contains a bounded loop; execute it through the Orcflo engine (/api/v1/orcflo/runs) instead.`,
+      );
+    }
     const maxDurationMs = Math.min(request.maxDurationMs ?? 30_000, 120_000);
     const maxCostMinor = Math.min(request.maxCostMinor ?? 100_000, 100_000_000);
     const started = Date.now();

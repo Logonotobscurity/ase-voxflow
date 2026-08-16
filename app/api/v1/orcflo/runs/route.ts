@@ -10,6 +10,7 @@ const StartRunSchema = z.object({
   triggerId: z.string().min(1).max(128).optional(),
   maxDurationMs: z.number().int().min(100).max(120_000).default(30_000),
   maxCostMinor: z.number().int().nonnegative().max(100_000_000).default(100_000),
+  maxNodeExecutions: z.number().int().min(1).max(10_000).optional(),
 }).strict();
 
 export async function GET(request: NextRequest) {
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest) {
       triggerId: input.triggerId,
       maxDurationMs: input.maxDurationMs,
       maxCostMinor: input.maxCostMinor,
+      maxNodeExecutions: input.maxNodeExecutions,
     });
     return apiSuccess({ run, persistence: platform.persistence }, 202);
   } catch (error) {

@@ -2,6 +2,8 @@
 
 **Scope:** the AGENT ⇄ WORKFLOW interoperability bridges called out as the most important addition to the platform — **Workflow-as-Tool** (an agent can call a published workflow as a canonical tool) and **Agent-as-Node** (a workflow `agent` node executes through the canonical `BoundedAgentRuntime`, never a second agent implementation). Also captured the full WORKFLOW ENGINE & VISUAL AUTOMATION DIRECTIVE as the development-spec addition and mapped the platform's current state against all 56 sections.
 
+**Follow-up increment (same day): deterministic control flow.** The Orcflo engine now executes graphs rather than linear topo passes: `condition` nodes + `condition` edges (§12), `router` nodes (§13), and bounded `for_each` loops with `loop`/`loopExit` edges (§14), with loop-aware graph validation (§45). Detailed evidence in `docs/verification/orcflo-engine-2026-08-16.md` §11.
+
 ## 1. What this increment adds
 
 | Piece | Location | Behavior verified |
@@ -61,12 +63,12 @@ Legend: ✅ implemented in this or the prior Orcflo increment · 🟡 partial (c
 | 6 | Data mapping, standardized references | 🟡 | `{{ key }}` + `$key` in blueprints; run inputs thread node outputs downstream. `{{input.x}}`/`{{node.output}}` path syntax for arbitrary edges: future. |
 | 7 | Workflow context (run_id, version, tenant, trigger, inputs, outputs, state) | ✅ | `OrcfloRun` carries all of these; step inputs are deterministic from context. |
 | 8 | Definition vs run separation; version pinned per run; history immutable | ✅ | `OrcfloRun` references `workflowId` + cache key pins `workflowVersion`; runs never mutated by edits. |
-| 9 | Run states PENDING…TIMED_OUT; node states | 🟡 | `OrcfloRunStatus` covers PENDING/RUNNING/WAITING_APPROVAL/COMPLETED/FAILED/CANCELLED; node states RUNNING/WAITING_APPROVAL/CACHED/COMPLETED/FAILED/SKIPPED. `PAUSED`, `WAITING`, `TIMED_OUT` aliases: future. |
+| 9 | Run states PENDING…TIMED_OUT; node states | 🟡 | `OrcfloRunStatus` covers PENDING/RUNNING/WAITING_APPROVAL/COMPLETED/FAILED/CANCELLED; node states RUNNING/WAITING_APPROVAL/CACHED/COMPLETED/FAILED/SKIPPED (SKIPPED recorded for untaken branches). `PAUSED`, `WAITING`, `TIMED_OUT` aliases: future. |
 | 10 | Run history (trigger, times, duration, status, cost, inputs, nodes, errors, output) | ✅ | `OrcfloRun` + `OrcfloStepResult` + metering + run events; immutable writes. |
 | 11 | Real-time run monitoring, event-driven, no aggressive polling | 🟡 | Replayable run stream over SSE; live long-poll subscription behind a worker + NATS: future. |
-| 12 | Decision/condition nodes, deterministic for critical business | ✅ | `condition` node handler (deterministic); edges carry `condition`; per-edge branch selection: future. |
-| 13 | Router nodes, structured decisions | ⬜ | Future. |
-| 14 | FOR_EACH loops with safety limits | ⬜ | Future; recursion is already bounded via workflow-tool depth limit. |
+| 12 | Decision/condition nodes, deterministic for critical business | ✅ | `condition` nodes evaluate dot-path comparisons (`path`/`op`/`value`) in code; edges with `condition: true/false` fire only on matching source output; untaken branches recorded as `SKIPPED`. Added 2026-08-16 control-flow increment. |
+| 13 | Router nodes, structured decisions | ✅ | `router` nodes select from `configuration.routes` via `pickPath` with optional `defaultRoute`, output `{ route }`, fire only the `sourceHandle`-matching edge; no match → `FAILED` with machine-readable reason. Added 2026-08-16 control-flow increment. |
+| 14 | FOR_EACH loops with safety limits | ✅ | `for_each` nodes iterate `collection` with `maxItems`/`maxIterations`; body consumes `input.item/index/iteration`; `loop` back edges re-enter the head, `loopExit` edges fire when done; violations fail with clear reasons; global `maxNodeExecutions` cap. Added 2026-08-16 control-flow increment. |
 | 15 | AI_MODEL node: provider/model/prompt/output schema/limits | ✅ | `ai_model` node: `modelProviderId`, `promptTemplate`, `maxTokens`, gateway limits, metered tokens. |
 | 16 | Multi-model workflows | ✅ | Each `ai_model` node names its provider; any mix per workflow. |
 | 17 | Agent node through canonical agent runtime | ✅ | This increment. |
@@ -97,7 +99,7 @@ Legend: ✅ implemented in this or the prior Orcflo increment · 🟡 partial (c
 | 42 | Analytics derived from events/history | 🟡 | `MeteringSummary` derived from metering records; per-node latency/usage breakdown: future. |
 | 43 | Canvas is editor, not engine | ✅ | Canonical API + server engine; browser never executes authoritative logic. |
 | 44 | Canvas actions | 🟡 | Save/publish/run/view-run exist server-side; canvas UI actions for the Orcflo surface: future. |
-| 45 | Graph validation incl. cycles vs bounded loops | 🟡 | `validateWorkflowGraph` (duplicate ids, unknown edges, cycles, topology); bounded-loop recognition: future (loops not yet a feature). |
+| 45 | Graph validation incl. cycles vs bounded loops | ✅ | `validateWorkflowGraph` accepts cycles ONLY as bounded loops: `loop` edges must target `for_each` heads, heads need a `loopExit` edge, nested loops rejected, router edges validated against declared routes; accidental infinite cycles still rejected. Added 2026-08-16 control-flow increment. |
 | 46 | Engine pipeline LOAD→VALIDATE→CREATE RUN→…→FINAL OUTPUT | ✅ | `OrcfloEngine.startRun` implements this sequence. |
 | 47 | Concurrency for independent nodes with limits | ⬜ | Future (topological sequential execution today). |
 | 48 | Idempotency (webhooks, payments, email, schedules) | ⬜ | Future. |
@@ -106,7 +108,7 @@ Legend: ✅ implemented in this or the prior Orcflo increment · 🟡 partial (c
 | 51 | Workflow-as-Tool, schema becomes tool schema | ✅ | This increment; input schema derived from `metadata.inputSchema` or generic object. |
 | 52 | Agent-as-Node via canonical runtime | ✅ | This increment. |
 | 53 | Workflow events with correlation | ✅ | `orcflo.run.started/completed/failed/approval_requested` domain events + run stream events, all with correlation. Workflow CRUD events: future. |
-| 54 | Testing: graph, execution, integration, E2E | 🟡 | Graph/execution/integration (AI, agent, MCP, webhook, scheduler) covered; router/parallel/loops tests await those features; browser E2E: future. |
+| 54 | Testing: graph, execution, integration, E2E | 🟡 | Graph tests (validation incl. bounded-loop/cycle distinction, router edges) and execution tests (linear, branching, router, loops, failure, retry, timeout) covered; parallel execution tests await §47; browser E2E: future. |
 | 55 | Definition of Done (canvas+persistence+validation+execution+events+history+errors+security+tests+observability) | 🟡 | Backend half complete per feature; canvas UI and some observability remain. |
 | 56 | Golden architecture: two runtimes over shared primitives | 🟡 | Tool registry + policy shared; event bus (NATS) and approval resume are the main remaining shared primitives. |
 

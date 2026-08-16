@@ -29,7 +29,7 @@ Open `http://localhost:3000`. Memory mode is process-local and ephemeral. API re
 - `/api/v1/approvals/:approvalId/decision` — separation-of-duties approval API
 - `/api/v1/agent/commands` — canonical text/already-transcribed-voice proposal API with intent RBAC and atomic privacy-safe audit intent
 - `/api/v1/voice/commands` — compatibility adapter for already-transcribed voice input; it does not accept media
-- `/api/v1/orcflo/runs`, `/api/v1/orcflo/runs/:runId`, `/api/v1/orcflo/runs/:runId/stream` — Orcflo run engine: start/list runs and replay the run event stream (SSE)
+- `/api/v1/orcflo/runs`, `/api/v1/orcflo/runs/:runId`, `/api/v1/orcflo/runs/:runId/stream` — Orcflo run engine: start/list runs and replay the run event stream (SSE); executes graphs with deterministic conditions (`condition` nodes + `condition` edges), routers (structured route selection), and bounded `for_each` loops (`loop`/`loopExit` edges, `maxItems`/`maxIterations` limits)
 - `/api/v1/orcflo/metering` — metering summary (runs, steps, cache hits/misses, model calls, tokens, duration, cost)
 - `/api/v1/orcflo/models`, `/api/v1/orcflo/models/:providerId/call` — fail-closed model provider registry and deterministic demo calls
 - `/api/v1/orcflo/triggers`, `/api/v1/orcflo/triggers/:triggerId/fire`, `/api/v1/orcflo/triggers/webhook/:key/fire`, `/api/v1/orcflo/triggers/schedule/drain`, `/api/v1/orcflo/triggers/event/fire` — the four trigger kinds (manual, schedule, webhook, event)

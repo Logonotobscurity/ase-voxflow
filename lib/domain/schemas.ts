@@ -94,6 +94,8 @@ export const WorkflowNodeTypeSchema = z.enum([
   'ai_model',
   'tool',
   'condition',
+  'router',
+  'for_each',
   'human_approval',
   'handoff',
   'transaction',
@@ -128,6 +130,16 @@ export const WorkflowEdgeSchema = z.object({
   sourceHandle: z.string().max(100).optional(),
   targetHandle: z.string().max(100).optional(),
   condition: z.boolean().optional(),
+  /**
+   * Orcflo control flow — bounded loops. `loop: true` marks a back edge
+   * from a loop-body node to a `for_each` head; it is the ONLY form of
+   * cycle the graph validator accepts (§45 of the workflow directive).
+   * `loopExit: true` marks an outgoing edge of a `for_each` head that
+   * fires when the loop is done. A `for_each` head targeted by a back
+   * edge MUST have at least one `loopExit` edge.
+   */
+  loop: z.boolean().optional(),
+  loopExit: z.boolean().optional(),
   metadata: MetadataSchema,
 }).strict();
 export type WorkflowEdge = z.infer<typeof WorkflowEdgeSchema>;
