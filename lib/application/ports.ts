@@ -44,6 +44,13 @@ export type ToolInvocation = {
   tool: ToolDefinition;
   input: Record<string, unknown>;
   signal: AbortSignal;
+  /**
+   * Orcflo bridge — the actor context of the caller. Present when the
+   * invocation originates from the canonical agent runtime; the
+   * workflow-as-tool executor requires it to start an Orcflo run with
+   * full tenancy, role, and correlation.
+   */
+  context?: import('../domain/policy').ActorContext;
 };
 
 export type ToolResult = {

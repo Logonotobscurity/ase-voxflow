@@ -96,3 +96,7 @@ See `docs/ARCHITECTURE.md` §5 for the governing decision-log entry (2026-08-16)
 - No live PostgreSQL server verification (sandbox network blocks the Prisma engine CDN and package mirrors); the Prisma path is ready but `UNVERIFIED` on a server cluster.
 - No durable background scheduler, worker lease, resumable approval, or live stream subscription.
 - Browser automation remains `UNVERIFIED` (no browser executable in the sandbox), as in prior increments.
+
+## 10. Follow-up increment — AGENT ⇄ WORKFLOW bridge
+
+This PR was extended with the two interop bridges the workflow directive calls the most important addition: **Workflow-as-Tool** (an agent can call a published workflow as a canonical tool, with correlation, parent execution id, and a recursion depth limit) and **Agent-as-Node** (workflow `agent` nodes execute through the canonical `BoundedAgentRuntime`, never a second agent implementation; the direct-provider path moved to a new `ai_model` node type). The full WORKFLOW ENGINE & VISUAL AUTOMATION DIRECTIVE is captured at `docs/WORKFLOW-ENGINE-DIRECTIVE.md`; the 56-section compliance map and bridge verification are in `docs/verification/workflow-runtime-bridge-2026-08-16.md`.

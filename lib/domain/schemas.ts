@@ -91,6 +91,7 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 export const WorkflowNodeTypeSchema = z.enum([
   'trigger',
   'agent',
+  'ai_model',
   'tool',
   'condition',
   'human_approval',

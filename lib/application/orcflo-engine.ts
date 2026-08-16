@@ -28,6 +28,7 @@ import type {
   ModelProviderGateway,
   OrcfloRuntimePorts,
 } from './ports';
+import type { BoundedAgentRuntime } from './agent-runtime';
 import { WorkflowSchema, type Workflow, type WorkflowNode } from '../domain/schemas';
 
 const wallClock: Clock = {
@@ -83,6 +84,15 @@ export class OrcfloEngine {
     handlers: ReadonlyMap<WorkflowNode['type'], WorkflowNodeHandler>,
     private readonly model: ModelProviderGateway,
     private readonly clock: Clock = wallClock,
+    private readonly options: {
+      /**
+       * The canonical bounded agent runtime. When present, `agent`
+       * workflow nodes execute through it (the AGENT → WORKFLOW bridge);
+       * when absent, agent nodes fail closed with CONFIGURATION_ERROR so
+       * no second agent implementation ever runs inside the engine.
+       */
+      agentRuntime?: BoundedAgentRuntime;
+    } = {},
   ) {
     this.baseHandlers = new Map(handlers);
   }
@@ -134,7 +144,8 @@ export class OrcfloEngine {
     let inFlightNodeId: string | undefined;
     try {
       const runHandlers = new Map<WorkflowNode['type'], WorkflowNodeHandler>(this.baseHandlers);
-      runHandlers.set('agent', this.createAgentNodeHandler(context));
+      runHandlers.set('agent', this.createAgentNodeHandler(context, run.id));
+      runHandlers.set('ai_model', this.createAiModelNodeHandler(context));
 
       for (const node of topologicalOrder(workflow)) {
         const decision = evaluateWorkflowNodePolicy(node, context);
@@ -390,7 +401,100 @@ export class OrcfloEngine {
     }
   }
 
-  private createAgentNodeHandler(context: ActorContext): WorkflowNodeHandler {
+  /**
+   * AGENT node — the WORKFLOW → AGENT bridge.
+   *
+   * Executes through the canonical `BoundedAgentRuntime` (same agent
+   * lifecycle, policy, tool registry, budget and evidence gates as a
+   * direct agent run). No second agent implementation exists inside the
+   * workflow engine. Node configuration:
+   *
+   *   - `agentId` (required) — the registered, tenant-scoped agent.
+   *   - `toolId` (optional) — a tool the deterministic planner invokes
+   *     once before completing; the agent's own `toolIds` assignment
+   *     and `evaluateToolPolicy` still govern it.
+   *   - `objective` / `promptTemplate` (optional) — the bounded objective.
+   *
+   * Lifecycle boundary: the canonical runtime transitions the agent
+   * READY → RUNNING → COMPLETED (or FAILED). Re-running an agent node
+   * therefore requires a fresh/READY agent — reuse is governed by the
+   * canonical lifecycle, exactly as outside workflows.
+   */
+  private createAgentNodeHandler(context: ActorContext, runId: string): WorkflowNodeHandler {
+    return async (node, input, signal): Promise<WorkflowNodeResult> => {
+      if (signal.aborted) {
+        throw new PlatformError('TIMEOUT', `${node.label} was aborted.`, { retryable: true });
+      }
+      const runtime = this.options.agentRuntime;
+      if (!runtime) {
+        throw new PlatformError(
+          'CONFIGURATION_ERROR',
+          `Agent node ${node.id} cannot execute: no canonical agent runtime is wired. Agent nodes run only through BoundedAgentRuntime.`,
+        );
+      }
+      const agentId = node.configuration.agentId;
+      if (typeof agentId !== 'string' || agentId.length === 0) {
+        throw new PlatformError(
+          'CONFIGURATION_ERROR',
+          `Agent node ${node.id} requires configuration.agentId. No agent is configured.`,
+        );
+      }
+      const toolId = typeof node.configuration.toolId === 'string' && node.configuration.toolId.length > 0
+        ? node.configuration.toolId
+        : undefined;
+      const objective = typeof node.configuration.objective === 'string'
+        ? node.configuration.objective
+        : typeof node.configuration.promptTemplate === 'string'
+          ? node.configuration.promptTemplate
+          : `Process the run input for ${node.label}.`;
+
+      const result = await runtime.run({
+        agentId,
+        executionId: `${runId}::${node.id}`,
+        objective,
+        input,
+        context,
+        planner: async (state) => {
+          if (signal.aborted) {
+            throw new PlatformError('TIMEOUT', `${node.label} agent was aborted.`, { retryable: true });
+          }
+          if (toolId && state.iteration === 1 && state.observations.length === 0) {
+            return { action: 'invoke_tool', toolId, input: { ...state.input } };
+          }
+          return {
+            action: 'complete',
+            summary: `Agent node ${node.label} completed after ${state.iteration} iteration(s) with ${state.evidence.length} evidence item(s).`,
+          };
+        },
+      });
+      if (result.status === 'WAITING_APPROVAL') {
+        throw new PlatformError(
+          'WORKFLOW_ERROR',
+          `Agent node ${node.id} requires human approval; approval resumption inside runs is not yet wired.`,
+        );
+      }
+      return {
+        output: {
+          agentId,
+          status: result.status,
+          summary: result.summary,
+          iterations: result.iterations,
+          toolCalls: result.toolCalls,
+          spentMinor: result.spentMinor,
+          evidenceCount: result.evidence.length,
+        },
+        evidence: result.evidence,
+        costMinor: result.spentMinor,
+      };
+    };
+  }
+
+  /**
+   * AI_MODEL node — a direct, bounded call through the fail-closed model
+   * gateway. Distinct from AGENT nodes: an AI model node has no agent
+   * lifecycle, tools, or autonomy; it receives only the mapped context.
+   */
+  private createAiModelNodeHandler(context: ActorContext): WorkflowNodeHandler {
     return async (node, input, signal): Promise<WorkflowNodeResult> => {
       if (signal.aborted) {
         throw new PlatformError('TIMEOUT', `${node.label} was aborted.`, { retryable: true });
@@ -399,12 +503,12 @@ export class OrcfloEngine {
       if (typeof providerId !== 'string' || providerId.length === 0) {
         throw new PlatformError(
           'CONFIGURATION_ERROR',
-          `Agent node ${node.id} requires configuration.modelProviderId. No model provider is configured.`,
+          `AI model node ${node.id} requires configuration.modelProviderId. No model provider is configured.`,
         );
       }
       const provider = await this.ports.modelProviders.findById(context.tenantId, providerId);
       if (!provider) {
-        throw new PlatformError('NOT_FOUND', `Model provider ${providerId} was not found for agent node ${node.id}.`);
+        throw new PlatformError('NOT_FOUND', `Model provider ${providerId} was not found for AI model node ${node.id}.`);
       }
       const promptTemplate = typeof node.configuration.promptTemplate === 'string'
         ? node.configuration.promptTemplate
@@ -429,7 +533,7 @@ export class OrcfloEngine {
         },
         evidence: [{
           type: 'internal_trace',
-          summary: `Agent node ${node.id} completed via ${provider.kind} model provider ${provider.name}.`,
+          summary: `AI model node ${node.id} completed via ${provider.kind} model provider ${provider.name}.`,
           data: { nodeId: node.id, providerId: provider.id, simulated: provider.kind === 'demo' },
         }],
         costMinor: 0,

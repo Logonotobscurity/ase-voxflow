@@ -34,6 +34,7 @@ Open `http://localhost:3000`. Memory mode is process-local and ephemeral. API re
 - `/api/v1/orcflo/models`, `/api/v1/orcflo/models/:providerId/call` — fail-closed model provider registry and deterministic demo calls
 - `/api/v1/orcflo/triggers`, `/api/v1/orcflo/triggers/:triggerId/fire`, `/api/v1/orcflo/triggers/webhook/:key/fire`, `/api/v1/orcflo/triggers/schedule/drain`, `/api/v1/orcflo/triggers/event/fire` — the four trigger kinds (manual, schedule, webhook, event)
 - `/api/v1/orcflo/blueprints`, `/api/v1/orcflo/blueprints/from-workflow`, `/api/v1/orcflo/blueprints/:blueprintId/instantiate` — reusable workflow templates that instantiate into first-class workflows
+- `/api/v1/orcflo/workflows/:workflowId/tool` — the AGENT ⇄ WORKFLOW bridge: register a READY workflow as a callable tool in the canonical tool registry (an agent assigned the tool can invoke it; nested runs are depth-limited). `agent` workflow nodes execute through the canonical agent runtime
 - `/api/vendors` — legacy read-only sample contract; writes fail closed
 - `/api/voice/transcribe`, `/api/voice/synthesize` — deprecated provider stubs that return `501` and never fabricate media results
 

@@ -289,13 +289,13 @@ describe('Orcflo engine — model providers', () => {
     })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
-  it('runs an agent node through a configured model provider', async () => {
+  it('runs an AI model node through a configured model provider', async () => {
     const harness = buildOrcfloHarness();
     const provider = await saveDemoProvider(harness);
     await harness.ports.workflows.save(orcfloWorkflowFixture({}, [
       {
-        id: 'agent-step',
-        type: 'agent',
+        id: 'ai-step',
+        type: 'ai_model',
         label: 'Draft summary',
         configuration: { modelProviderId: provider.id, promptTemplate: 'Summarize' },
         retryPolicy: { maxRetries: 0, backoffMs: 0 },
@@ -305,17 +305,17 @@ describe('Orcflo engine — model providers', () => {
     const run = await runWithFixture(harness, { vendor: 'Alpha' });
 
     expect(run.status).toBe('COMPLETED');
-    const agentStep = run.steps.find((step) => step.nodeId === 'agent-step');
-    expect(agentStep?.status).toBe('COMPLETED');
-    expect((agentStep?.output as Record<string, unknown>)?.response).toContain('demo-echo');
+    const aiStep = run.steps.find((step) => step.nodeId === 'ai-step');
+    expect(aiStep?.status).toBe('COMPLETED');
+    expect((aiStep?.output as Record<string, unknown>)?.response).toContain('demo-echo');
     const summary = await harness.engine.meteringSummary(orcfloActorContext);
     expect(summary.modelCalls).toBe(1);
   });
 
-  it('fails closed when an agent node has no model provider configured', async () => {
+  it('fails closed when an AI model node has no model provider configured', async () => {
     const harness = buildOrcfloHarness();
     await harness.ports.workflows.save(orcfloWorkflowFixture({}, [
-      { id: 'agent-step', type: 'agent', label: 'No model', configuration: {}, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+      { id: 'ai-step', type: 'ai_model', label: 'No model', configuration: {}, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
     ]));
     await expect(runWithFixture(harness)).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
   });

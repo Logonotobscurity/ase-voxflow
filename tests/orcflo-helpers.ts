@@ -1,4 +1,5 @@
 import type { OrcfloRuntimePorts } from '../lib/application/ports';
+import { BoundedAgentRuntime } from '../lib/application/agent-runtime';
 import { OrcfloEngine, type WorkflowNodeHandler } from '../lib/application/orcflo-engine';
 import { DemoModelProviderGateway } from '../lib/application/model-providers';
 import { PlatformError } from '../lib/domain/errors';
@@ -22,6 +23,8 @@ export const orcfloActorContext: ActorContext = {
 export type OrcfloTestHarness = {
   ports: OrcfloRuntimePorts;
   engine: OrcfloEngine;
+  /** Canonical agent runtime wired to the engine for `agent` nodes. */
+  agentRuntime: BoundedAgentRuntime;
   clock: FixedClock;
   handlerCalls: Array<{ nodeId: string; input: Record<string, unknown> }>;
   runWith: typeof runWithFixture;
@@ -78,15 +81,22 @@ export function buildOrcfloHarness(
   };
   const clock = new FixedClock(fixedNowIso);
   const handlerCalls: Array<{ nodeId: string; input: Record<string, unknown> }> = [];
+  // Canonical agent runtime — shared by direct agent runs and `agent`
+  // workflow nodes, mirroring the platform composition root. Tests may
+  // swap `ports.toolExecutor` before running to supply tool handlers;
+  // the runtime reads the executor from the same ports object.
+  const agentRuntime = new BoundedAgentRuntime(runtimePorts);
   const engine = new OrcfloEngine(
     runtimePorts,
     handlers ?? demoNodeHandlers(handlerCalls),
     new DemoModelProviderGateway(),
     clock,
+    { agentRuntime },
   );
   return {
     ports: runtimePorts,
     engine,
+    agentRuntime,
     clock,
     handlerCalls,
     runWith: runWithFixture,

@@ -16,6 +16,9 @@ let postScheduleDrain: typeof import('../app/api/v1/orcflo/triggers/schedule/dra
 let postEventFire: typeof import('../app/api/v1/orcflo/triggers/event/fire/route').POST;
 let postBlueprints: typeof import('../app/api/v1/orcflo/blueprints/route').POST;
 let postInstantiate: typeof import('../app/api/v1/orcflo/blueprints/[blueprintId]/instantiate/route').POST;
+let getWorkflowTool: typeof import('../app/api/v1/orcflo/workflows/[workflowId]/tool/route').GET;
+let postWorkflowTool: typeof import('../app/api/v1/orcflo/workflows/[workflowId]/tool/route').POST;
+let deleteWorkflowTool: typeof import('../app/api/v1/orcflo/workflows/[workflowId]/tool/route').DELETE;
 
 beforeAll(async () => {
   process.env.ASE_RUNTIME_MODE = 'demo';
@@ -32,6 +35,7 @@ beforeAll(async () => {
   ({ POST: postEventFire } = await import('../app/api/v1/orcflo/triggers/event/fire/route'));
   ({ POST: postBlueprints } = await import('../app/api/v1/orcflo/blueprints/route'));
   ({ POST: postInstantiate } = await import('../app/api/v1/orcflo/blueprints/[blueprintId]/instantiate/route'));
+  ({ GET: getWorkflowTool, POST: postWorkflowTool, DELETE: deleteWorkflowTool } = await import('../app/api/v1/orcflo/workflows/[workflowId]/tool/route'));
 
   // Seed a READY workflow and the membership rows the demo identity
   // reconciliation requires.
@@ -236,5 +240,23 @@ describe('Orcflo HTTP routes', () => {
     const payload = await response.json();
     expect(response.status).toBe(403);
     expect(payload.error.code).toBe('AUTHORIZATION_DENIED');
+  });
+
+  it('registers a workflow as a tool, describes it, and soft-unregisters it', async () => {
+    const params = Promise.resolve({ workflowId: 'workflow_orcflo_routes' });
+    const registered = await postWorkflowTool(request('/api/v1/orcflo/workflows/workflow_orcflo_routes/tool', '{}'), { params });
+    const registeredPayload = await registered.json();
+    expect(registered.status).toBe(201);
+    expect(registeredPayload.data.tool.metadata).toMatchObject({ orcfloTool: true, workflowId: 'workflow_orcflo_routes' });
+
+    const described = await getWorkflowTool(getRequest('/api/v1/orcflo/workflows/workflow_orcflo_routes/tool'), { params });
+    const describedPayload = await described.json();
+    expect(described.status).toBe(200);
+    expect(describedPayload.data.tool.id).toBe(registeredPayload.data.tool.id);
+
+    const unregistered = await deleteWorkflowTool(getRequest('/api/v1/orcflo/workflows/workflow_orcflo_routes/tool'), { params });
+    const unregisteredPayload = await unregistered.json();
+    expect(unregistered.status).toBe(200);
+    expect(unregisteredPayload.data.tool.availability).toBe('UNAVAILABLE');
   });
 });

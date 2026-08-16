@@ -139,6 +139,10 @@ export class BoundedAgentRuntime {
             tool,
             input: proposal.input,
             signal,
+            // Orcflo bridge — carry the caller's actor context so the
+            // workflow-as-tool executor can start a nested run with full
+            // tenancy, role, and correlation.
+            context: request.context,
           }),
           Math.min(tool.timeoutMs, this.remainingMs(startedAt, runningAgent.policies.limits.maxDurationMs)),
           `Tool ${tool.name}`,

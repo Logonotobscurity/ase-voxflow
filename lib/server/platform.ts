@@ -8,6 +8,12 @@ import { OrcfloBlueprintService } from '../application/orcflo-blueprints';
 import { OrcfloEngine } from '../application/orcflo-engine';
 import { OrcfloTriggerService } from '../application/orcflo-triggers';
 import { TransactionService } from '../application/transaction-service';
+import {
+  WorkflowAwareToolExecutor,
+  WorkflowAsToolExecutor,
+  WorkflowAsToolService,
+  WORKFLOW_TOOL_DEFAULT_MAX_DEPTH,
+} from '../application/workflow-as-tool';
 import { WorkflowRunner, type WorkflowNodeHandler } from '../application/workflow-runner';
 import type { WorkflowNode } from '../domain/schemas';
 import { PlatformError } from '../domain/errors';
@@ -49,6 +55,13 @@ export type PlatformApplication = {
   orcflo: OrcfloEngine;
   triggers: OrcfloTriggerService;
   blueprints: OrcfloBlueprintService;
+  /**
+   * Orcflo bridge — workflow-as-tool registry. A READY workflow can be
+   * registered as a callable tool in the canonical tool registry so the
+   * Agent Runtime can invoke it; agent nodes inside workflows run
+   * through the same BoundedAgentRuntime.
+   */
+  workflowTools: WorkflowAsToolService;
   persistence: 'ephemeral-memory' | 'postgresql';
   /** Capability 06 — empty allowlist by default. Wire a real registry to enable MCP. */
   mcpServers: import('../application/ports').McpServerRegistry;
@@ -106,6 +119,27 @@ export function getPlatform(): PlatformApplication {
   } else {
     throw new PlatformError('CONFIGURATION_ERROR', `Unsupported ASE_PERSISTENCE_MODE: ${persistenceMode}.`);
   }
+
+  // Orcflo bridge — workflow-as-tool. The executor starts nested runs
+  // through the engine; the engine reference is resolved lazily so the
+  // tool executor can be wired before the engine exists (no cycle).
+  const engineRef: { current?: OrcfloEngine } = {};
+  const maxWorkflowToolDepth = Number.parseInt(
+    process.env.ASE_ORCFLO_TOOL_MAX_DEPTH ?? String(WORKFLOW_TOOL_DEFAULT_MAX_DEPTH),
+    10,
+  );
+  const workflowToolExecutor = new WorkflowAsToolExecutor(() => {
+    if (!engineRef.current) {
+      throw new PlatformError('CONFIGURATION_ERROR', 'The Orcflo engine is not initialized.');
+    }
+    return engineRef.current;
+  }, { maxDepth: Number.isFinite(maxWorkflowToolDepth) ? maxWorkflowToolDepth : WORKFLOW_TOOL_DEFAULT_MAX_DEPTH });
+  ports = {
+    ...ports,
+    // One ToolExecutor port: workflow tools route to the engine, every
+    // other tool goes through the deterministic demo executor.
+    toolExecutor: new WorkflowAwareToolExecutor(ports.toolExecutor, workflowToolExecutor),
+  };
 
   // Orcflo — deterministic run engine. The model gateway is fail-closed:
   // demo runtime modes may use the deterministic demo gateway; every
@@ -191,16 +225,26 @@ export function getPlatform(): PlatformApplication {
   };
 
   const handlers = createDemoNodeHandlers();
-  const orcfloEngine = new OrcfloEngine(orcfloPorts, handlers, modelGateway, clock);
+  // The canonical agent runtime is shared by direct agent runs and by
+  // `agent` workflow nodes (the WORKFLOW → AGENT bridge). Its tool
+  // executor is the composite above, so an agent can call a workflow
+  // tool, which starts an Orcflo run, which may contain agent nodes
+  // again — bounded by the workflow-tool depth limit.
+  const boundedAgentRuntime = new BoundedAgentRuntime(ports);
+  const orcfloEngine = new OrcfloEngine(orcfloPorts, handlers, modelGateway, clock, {
+    agentRuntime: boundedAgentRuntime,
+  });
+  engineRef.current = orcfloEngine;
   const application: PlatformApplication = {
     ports,
     commands: new AgentCommandService(ports),
-    agents: new BoundedAgentRuntime(ports),
+    agents: boundedAgentRuntime,
     workflows: new WorkflowRunner(ports, handlers),
     transactions: new TransactionService(ports),
     orcflo: orcfloEngine,
     triggers: new OrcfloTriggerService(orcfloPorts, orcfloEngine, clock),
     blueprints: new OrcfloBlueprintService(orcfloPorts),
+    workflowTools: new WorkflowAsToolService(orcfloPorts),
     persistence,
     mcpServers: new EmptyMcpServerRegistry(),
     avatar: new NoopAvatarSessionAdapter(),
