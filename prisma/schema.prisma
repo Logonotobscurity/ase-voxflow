@@ -86,6 +86,13 @@ model Tenant {
   outbox       OutboxMessage[]
   transcripts  Transcript[]
   mcpServers   McpServer[]
+  orcfloRuns   OrcfloRun[]
+  orcfloRunEvents OrcfloRunEvent[]
+  orcfloStepCache  OrcfloStepCacheEntry[]
+  orcfloMetering   OrcfloMeteringRecord[]
+  orcfloModelProviders OrcfloModelProvider[]
+  orcfloTriggers    OrcfloTrigger[]
+  orcfloBlueprints  OrcfloBlueprint[]
 }
 
 model TenantMember {
@@ -164,6 +171,8 @@ model Workflow {
   updatedAt   DateTime       @updatedAt
   tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   executions  WorkflowExecution[]
+  orcfloRuns  OrcfloRun[]
+  orcfloTriggers OrcfloTrigger[]
 
   @@index([tenantId, status])
   @@index([tenantId, updatedAt])
@@ -321,4 +330,145 @@ model McpServer {
 
   @@unique([tenantId, name])
   @@index([tenantId, trusted])
+}
+
+// === Orcflo engine (additive) ===
+//
+// Orcflo is the deterministic workflow run engine: `OrcfloRun` is the
+// run aggregate, `OrcfloRunEvent` is the append-only run stream,
+// `OrcfloStepCacheEntry` stores content-hashed step outputs,
+// `OrcfloMeteringRecord` meters observable units, `OrcfloModelProvider`
+// registers fail-closed model gateways, `OrcfloTrigger` holds the four
+// trigger kinds, and `OrcfloBlueprint` stores reusable workflow
+// templates. See docs/ARCHITECTURE.md §5.
+
+model OrcfloRun {
+  id            String   @id
+  tenantId      String
+  workflowId    String
+  blueprintId   String?
+  triggerId     String?
+  triggerKind   String?
+  status        String   @default("RUNNING")
+  input         Json
+  output        Json?
+  stepResults   Json
+  correlationId String
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workflow      Workflow @relation(fields: [workflowId], references: [id], onDelete: Restrict)
+  events        OrcfloRunEvent[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, workflowId, createdAt])
+  @@index([tenantId, triggerId, createdAt])
+  @@index([correlationId])
+}
+
+model OrcfloRunEvent {
+  id         String   @id
+  tenantId   String
+  runId      String
+  sequence   Int
+  eventType  String
+  nodeId     String?
+  status     String?
+  payload    Json
+  occurredAt DateTime @default(now())
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  run        OrcfloRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sequence])
+  @@index([tenantId, runId, sequence])
+}
+
+model OrcfloStepCacheEntry {
+  id              String   @id
+  tenantId        String
+  key             String
+  workflowId      String
+  workflowVersion Int
+  nodeId          String
+  inputHash       String
+  output          Json
+  hits            Int      @default(0)
+  createdAt       DateTime @default(now())
+  lastHitAt       DateTime?
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@index([tenantId, workflowId, nodeId])
+}
+
+model OrcfloMeteringRecord {
+  id         String   @id
+  tenantId   String
+  runId      String?
+  workflowId String?
+  nodeId     String?
+  metric     String
+  unit       String
+  amount     BigInt
+  recordedAt DateTime @default(now())
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, metric, recordedAt])
+  @@index([tenantId, runId])
+  @@index([tenantId, workflowId, recordedAt])
+}
+
+model OrcfloModelProvider {
+  id        String   @id
+  tenantId  String
+  name      String
+  kind      String
+  model     String?
+  endpoint  String?
+  config    Json     @default("{}")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name])
+  @@index([tenantId, kind, enabled])
+}
+
+model OrcfloTrigger {
+  id          String   @id
+  tenantId    String
+  workflowId  String
+  name        String
+  kind        String
+  config      Json
+  enabled     Boolean  @default(true)
+  lastFiredAt DateTime?
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workflow    Workflow @relation(fields: [workflowId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, kind, enabled])
+  @@index([tenantId, workflowId])
+  @@index([tenantId, kind, name])
+}
+
+model OrcfloBlueprint {
+  id          String   @id
+  tenantId    String
+  name        String
+  description String   @default("")
+  version     Int      @default(1)
+  parameters  Json
+  graph       Json
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, updatedAt])
 }

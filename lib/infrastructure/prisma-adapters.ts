@@ -6,6 +6,14 @@ import type {
   EventLog,
   EventPublisher,
   ExecutionRepository,
+  OrcfloBlueprintRepository,
+  OrcfloMeteringRepository,
+  OrcfloModelProviderRepository,
+  OrcfloPersistencePorts,
+  OrcfloRunEventRepository,
+  OrcfloRunRepository,
+  OrcfloStepCacheRepository,
+  OrcfloTriggerRepository,
   OutboxRepository,
   PersistencePorts,
   ToolRepository,
@@ -31,6 +39,22 @@ import {
   type Workflow,
   type WorkflowExecution,
 } from '../domain/schemas';
+import {
+  BlueprintSchema,
+  ModelProviderSchema,
+  OrcfloMeteringRecordSchema,
+  OrcfloRunEventSchema,
+  OrcfloRunSchema,
+  OrcfloStepCacheEntrySchema,
+  OrcfloTriggerSchema,
+  type OrcfloBlueprint,
+  type OrcfloMeteringRecord,
+  type OrcfloModelProvider,
+  type OrcfloRun,
+  type OrcfloRunEvent,
+  type OrcfloStepCacheEntry,
+  type OrcfloTrigger,
+} from '../domain/orcflo';
 import { PlatformError } from '../domain/errors';
 import { createOutboxMessage } from '../domain/events';
 import { Prisma, type PrismaClient } from '../../app/generated/prisma/client';
@@ -443,8 +467,17 @@ export class PrismaEventStore implements EventPublisher, EventLog {
 export function createPrismaPersistencePorts(
   prisma: DatabaseClient,
   transactionScoped = false,
-): PersistencePorts {
+): PersistencePorts & { orcflo: OrcfloPersistencePorts } {
   const outbox = new PrismaOutboxRepository(prisma);
+  const orcflo: OrcfloPersistencePorts = {
+    runs: new PrismaOrcfloRunRepository(prisma),
+    runEvents: new PrismaOrcfloRunEventRepository(prisma),
+    stepCache: new PrismaOrcfloStepCacheRepository(prisma),
+    metering: new PrismaOrcfloMeteringRepository(prisma),
+    modelProviders: new PrismaOrcfloModelProviderRepository(prisma),
+    triggers: new PrismaOrcfloTriggerRepository(prisma),
+    blueprints: new PrismaOrcfloBlueprintRepository(prisma),
+  };
   return {
     agents: new PrismaAgentRepository(prisma),
     tools: new PrismaToolRepository(prisma),
@@ -454,7 +487,263 @@ export function createPrismaPersistencePorts(
     approvals: new PrismaApprovalRepository(prisma),
     events: new PrismaEventStore(prisma, transactionScoped),
     outbox,
+    orcflo,
   };
+}
+
+// --- Orcflo engine repositories (additive) ---
+
+export class PrismaOrcfloRunRepository implements OrcfloRunRepository {
+  constructor(private readonly prisma: DatabaseClient) {}
+  async findById(tenantId: string, id: string) {
+    const row = await this.prisma.orcfloRun.findFirst({ where: { id, tenantId } });
+    return row ? mapOrcfloRun(row) : null;
+  }
+  async list(tenantId: string, options: { workflowId?: string; limit?: number } = {}) {
+    const take = Math.max(1, Math.min(Math.trunc(options.limit ?? 100), 1_000));
+    const rows = await this.prisma.orcfloRun.findMany({
+      where: { tenantId, workflowId: options.workflowId },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+    return rows.map(mapOrcfloRun);
+  }
+  async listByTrigger(tenantId: string, triggerId: string, limit = 100) {
+    const take = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+    const rows = await this.prisma.orcfloRun.findMany({
+      where: { tenantId, triggerId },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+    return rows.map(mapOrcfloRun);
+  }
+  async save(value: OrcfloRun) {
+    const data = {
+      tenantId: value.tenantId,
+      workflowId: value.workflowId,
+      blueprintId: value.blueprintId,
+      triggerId: value.triggerId,
+      triggerKind: value.triggerKind,
+      status: value.status,
+      input: json(value.input),
+      output: value.output === undefined ? undefined : json(value.output),
+      stepResults: json(value.steps),
+      correlationId: value.correlationId,
+      startedAt: value.startedAt,
+      completedAt: value.completedAt,
+      createdAt: value.createdAt,
+      updatedAt: value.updatedAt,
+    };
+    const owner = await this.prisma.orcfloRun.findUnique({ where: { id: value.id }, select: { tenantId: true } });
+    assertTenantOwnership(owner?.tenantId, value.tenantId);
+    const updated = await this.prisma.orcfloRun.updateMany({ where: { id: value.id, tenantId: value.tenantId }, data });
+    if (updated.count === 0) await this.prisma.orcfloRun.create({ data: { id: value.id, ...data } });
+  }
+}
+
+export class PrismaOrcfloRunEventRepository implements OrcfloRunEventRepository {
+  constructor(private readonly prisma: DatabaseClient) {}
+  async append(event: OrcfloRunEvent) {
+    await this.prisma.orcfloRunEvent.create({
+      data: {
+        id: event.id,
+        tenantId: event.tenantId,
+        runId: event.runId,
+        sequence: event.sequence,
+        eventType: event.eventType,
+        nodeId: event.nodeId,
+        status: event.status,
+        payload: json(event.payload),
+        occurredAt: event.occurredAt,
+      },
+    });
+  }
+  async listForRun(tenantId: string, runId: string) {
+    const rows = await this.prisma.orcfloRunEvent.findMany({
+      where: { tenantId, runId },
+      orderBy: { sequence: 'asc' },
+    });
+    return rows.map(mapOrcfloRunEvent);
+  }
+}
+
+export class PrismaOrcfloStepCacheRepository implements OrcfloStepCacheRepository {
+  constructor(private readonly prisma: DatabaseClient) {}
+  async findByKey(tenantId: string, key: string) {
+    const row = await this.prisma.orcfloStepCacheEntry.findFirst({ where: { tenantId, key } });
+    return row ? mapOrcfloStepCacheEntry(row) : null;
+  }
+  async save(entry: OrcfloStepCacheEntry) {
+    const data = {
+      tenantId: entry.tenantId,
+      key: entry.key,
+      workflowId: entry.workflowId,
+      workflowVersion: entry.workflowVersion,
+      nodeId: entry.nodeId,
+      inputHash: entry.inputHash,
+      output: json(entry.output),
+      hits: entry.hits,
+      createdAt: entry.createdAt,
+      lastHitAt: entry.lastHitAt,
+    };
+    const owner = await this.prisma.orcfloStepCacheEntry.findUnique({ where: { id: entry.id }, select: { tenantId: true } });
+    assertTenantOwnership(owner?.tenantId, entry.tenantId);
+    const updated = await this.prisma.orcfloStepCacheEntry.updateMany({
+      where: { id: entry.id, tenantId: entry.tenantId },
+      data,
+    });
+    if (updated.count === 0) await this.prisma.orcfloStepCacheEntry.create({ data: { id: entry.id, ...data } });
+  }
+  async recordHit(tenantId: string, key: string, atIso: string) {
+    const updated = await this.prisma.orcfloStepCacheEntry.updateMany({
+      where: { tenantId, key },
+      data: { hits: { increment: 1 }, lastHitAt: atIso },
+    });
+    if (updated.count === 0) {
+      throw new PlatformError('NOT_FOUND', `Step cache entry ${key} was not found.`);
+    }
+  }
+}
+
+export class PrismaOrcfloMeteringRepository implements OrcfloMeteringRepository {
+  constructor(private readonly prisma: DatabaseClient) {}
+  async record(record: OrcfloMeteringRecord) {
+    await this.prisma.orcfloMeteringRecord.create({
+      data: {
+        id: record.id,
+        tenantId: record.tenantId,
+        runId: record.runId,
+        workflowId: record.workflowId,
+        nodeId: record.nodeId,
+        metric: record.metric,
+        unit: record.unit,
+        amount: BigInt(record.amount),
+        recordedAt: record.recordedAt,
+      },
+    });
+  }
+  async list(tenantId: string, options: { since?: string; limit?: number } = {}) {
+    const take = Math.max(1, Math.min(Math.trunc(options.limit ?? 10_000), 100_000));
+    const rows = await this.prisma.orcfloMeteringRecord.findMany({
+      where: {
+        tenantId,
+        recordedAt: options.since ? { gte: options.since } : undefined,
+      },
+      orderBy: { recordedAt: 'asc' },
+      take,
+    });
+    return rows.map(mapOrcfloMeteringRecord);
+  }
+}
+
+export class PrismaOrcfloModelProviderRepository implements OrcfloModelProviderRepository {
+  constructor(private readonly prisma: DatabaseClient) {}
+  async findById(tenantId: string, id: string) {
+    const row = await this.prisma.orcfloModelProvider.findFirst({ where: { id, tenantId } });
+    return row ? mapOrcfloModelProvider(row) : null;
+  }
+  async list(tenantId: string) {
+    const rows = await this.prisma.orcfloModelProvider.findMany({
+      where: { tenantId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.map(mapOrcfloModelProvider);
+  }
+  async save(value: OrcfloModelProvider) {
+    const data = {
+      tenantId: value.tenantId,
+      name: value.name,
+      kind: value.kind,
+      model: value.model,
+      endpoint: value.endpoint,
+      config: json(value.config),
+      enabled: value.enabled,
+      createdAt: value.createdAt,
+      updatedAt: value.updatedAt,
+    };
+    const owner = await this.prisma.orcfloModelProvider.findUnique({ where: { id: value.id }, select: { tenantId: true } });
+    assertTenantOwnership(owner?.tenantId, value.tenantId);
+    const updated = await this.prisma.orcfloModelProvider.updateMany({
+      where: { id: value.id, tenantId: value.tenantId },
+      data,
+    });
+    if (updated.count === 0) await this.prisma.orcfloModelProvider.create({ data: { id: value.id, ...data } });
+  }
+}
+
+export class PrismaOrcfloTriggerRepository implements OrcfloTriggerRepository {
+  constructor(private readonly prisma: DatabaseClient) {}
+  async findById(tenantId: string, id: string) {
+    const row = await this.prisma.orcfloTrigger.findFirst({ where: { id, tenantId } });
+    return row ? mapOrcfloTrigger(row) : null;
+  }
+  async list(tenantId: string, options: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean } = {}) {
+    const rows = await this.prisma.orcfloTrigger.findMany({
+      where: {
+        tenantId,
+        kind: options.kind,
+        enabled: options.enabledOnly === true ? true : undefined,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(mapOrcfloTrigger);
+  }
+  async save(value: OrcfloTrigger) {
+    const data = {
+      tenantId: value.tenantId,
+      workflowId: value.workflowId,
+      name: value.name,
+      kind: value.kind,
+      config: json(value.config),
+      enabled: value.enabled,
+      lastFiredAt: value.lastFiredAt,
+      metadata: json(value.metadata),
+      createdAt: value.createdAt,
+      updatedAt: value.updatedAt,
+    };
+    const owner = await this.prisma.orcfloTrigger.findUnique({ where: { id: value.id }, select: { tenantId: true } });
+    assertTenantOwnership(owner?.tenantId, value.tenantId);
+    const updated = await this.prisma.orcfloTrigger.updateMany({
+      where: { id: value.id, tenantId: value.tenantId },
+      data,
+    });
+    if (updated.count === 0) await this.prisma.orcfloTrigger.create({ data: { id: value.id, ...data } });
+  }
+}
+
+export class PrismaOrcfloBlueprintRepository implements OrcfloBlueprintRepository {
+  constructor(private readonly prisma: DatabaseClient) {}
+  async findById(tenantId: string, id: string) {
+    const row = await this.prisma.orcfloBlueprint.findFirst({ where: { id, tenantId } });
+    return row ? mapOrcfloBlueprint(row) : null;
+  }
+  async list(tenantId: string) {
+    const rows = await this.prisma.orcfloBlueprint.findMany({
+      where: { tenantId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.map(mapOrcfloBlueprint);
+  }
+  async save(value: OrcfloBlueprint) {
+    const data = {
+      tenantId: value.tenantId,
+      name: value.name,
+      description: value.description,
+      version: value.version,
+      parameters: json(value.parameters),
+      graph: json(value.graph),
+      metadata: json(value.metadata),
+      createdAt: value.createdAt,
+      updatedAt: value.updatedAt,
+    };
+    const owner = await this.prisma.orcfloBlueprint.findUnique({ where: { id: value.id }, select: { tenantId: true } });
+    assertTenantOwnership(owner?.tenantId, value.tenantId);
+    const updated = await this.prisma.orcfloBlueprint.updateMany({
+      where: { id: value.id, tenantId: value.tenantId },
+      data,
+    });
+    if (updated.count === 0) await this.prisma.orcfloBlueprint.create({ data: { id: value.id, ...data } });
+  }
 }
 
 export class PrismaUnitOfWork implements UnitOfWork {
@@ -511,6 +800,27 @@ function mapEvent(row: Record<string, unknown>): DomainEvent {
 }
 function mapOutbox(row: Record<string, unknown>): OutboxMessage {
   return OutboxMessageSchema.parse(withIsoDates(row));
+}
+function mapOrcfloRun(row: Record<string, unknown>): OrcfloRun {
+  return OrcfloRunSchema.parse(withIsoDates(row));
+}
+function mapOrcfloRunEvent(row: Record<string, unknown>): OrcfloRunEvent {
+  return OrcfloRunEventSchema.parse(withIsoDates(row));
+}
+function mapOrcfloStepCacheEntry(row: Record<string, unknown>): OrcfloStepCacheEntry {
+  return OrcfloStepCacheEntrySchema.parse(withIsoDates(row));
+}
+function mapOrcfloMeteringRecord(row: Record<string, unknown>): OrcfloMeteringRecord {
+  return OrcfloMeteringRecordSchema.parse(withIsoDates({ ...row, amount: Number(row.amount) }));
+}
+function mapOrcfloModelProvider(row: Record<string, unknown>): OrcfloModelProvider {
+  return ModelProviderSchema.parse(withIsoDates(row));
+}
+function mapOrcfloTrigger(row: Record<string, unknown>): OrcfloTrigger {
+  return OrcfloTriggerSchema.parse(withIsoDates(row));
+}
+function mapOrcfloBlueprint(row: Record<string, unknown>): OrcfloBlueprint {
+  return BlueprintSchema.parse(withIsoDates(row));
 }
 function withIsoDates(row: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(

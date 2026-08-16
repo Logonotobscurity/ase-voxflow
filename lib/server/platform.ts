@@ -1,8 +1,12 @@
 import 'server-only';
 
-import type { PlatformPorts } from '../application/ports';
+import type { OrcfloPersistencePorts, OrcfloRuntimePorts, PlatformPorts } from '../application/ports';
 import { AgentCommandService } from '../application/agent-command-service';
 import { BoundedAgentRuntime } from '../application/agent-runtime';
+import { DemoModelProviderGateway, NoopModelProviderGateway } from '../application/model-providers';
+import { OrcfloBlueprintService } from '../application/orcflo-blueprints';
+import { OrcfloEngine } from '../application/orcflo-engine';
+import { OrcfloTriggerService } from '../application/orcflo-triggers';
 import { TransactionService } from '../application/transaction-service';
 import { WorkflowRunner, type WorkflowNodeHandler } from '../application/workflow-runner';
 import type { WorkflowNode } from '../domain/schemas';
@@ -37,6 +41,14 @@ export type PlatformApplication = {
   agents: BoundedAgentRuntime;
   workflows: WorkflowRunner;
   transactions: TransactionService;
+  /**
+   * Orcflo — the deterministic workflow run engine. Runs, run stream,
+   * step cache, metering, fail-closed model providers, four triggers,
+   * and blueprints all hang off this root.
+   */
+  orcflo: OrcfloEngine;
+  triggers: OrcfloTriggerService;
+  blueprints: OrcfloBlueprintService;
   persistence: 'ephemeral-memory' | 'postgresql';
   /** Capability 06 — empty allowlist by default. Wire a real registry to enable MCP. */
   mcpServers: import('../application/ports').McpServerRegistry;
@@ -66,11 +78,13 @@ export function getPlatform(): PlatformApplication {
   const toolExecutor = new DeterministicToolExecutor(new Map());
   const clock = new SystemClock();
   let ports: PlatformPorts;
+  let orcfloPersistence: OrcfloPersistencePorts;
   let persistence: PlatformApplication['persistence'];
 
   if (persistenceMode === 'postgres') {
     const prisma = getPrismaClient();
     const persistencePorts = createPrismaPersistencePorts(prisma);
+    orcfloPersistence = persistencePorts.orcflo;
     ports = {
       ...persistencePorts,
       unitOfWork: new PrismaUnitOfWork(prisma),
@@ -79,7 +93,8 @@ export function getPlatform(): PlatformApplication {
     };
     persistence = 'postgresql';
   } else if (persistenceMode === 'memory') {
-    const { store, ports: persistencePorts, tenantMembers } = createInMemoryPersistencePorts();
+    const { store, ports: persistencePorts, tenantMembers, orcflo } = createInMemoryPersistencePorts();
+    orcfloPersistence = orcflo;
     ports = {
       ...persistencePorts,
       unitOfWork: new InMemoryUnitOfWork(store, persistencePorts),
@@ -92,9 +107,25 @@ export function getPlatform(): PlatformApplication {
     throw new PlatformError('CONFIGURATION_ERROR', `Unsupported ASE_PERSISTENCE_MODE: ${persistenceMode}.`);
   }
 
+  // Orcflo — deterministic run engine. The model gateway is fail-closed:
+  // demo runtime modes may use the deterministic demo gateway; every
+  // other mode refuses all model calls (no verified provider SDK exists).
+  const orcfloPorts: OrcfloRuntimePorts = { ...ports, ...orcfloPersistence };
+  const modelGateway = runtimeMode === 'demo'
+    ? new DemoModelProviderGateway()
+    : new NoopModelProviderGateway();
+
   // Audit §1 — identity verifier selection.
   if (runtimeMode === 'demo') {
     ports.identity = new DemoHeaderIdentityVerifier();
+    // Demo bootstrap: the documented demo defaults (tenant_demo /
+    // actor_ada / BUILDER, see README) must be able to authenticate in
+    // the ephemeral memory runtime even though a membership authority
+    // is wired. Seeding is demo+memory-only and matches the identity
+    // layer's own bootstrap intent; non-demo modes never seed.
+    if (persistenceMode === 'memory' && ports.tenantMembers) {
+      void ports.tenantMembers.upsert({ tenantId: 'tenant_demo', actorId: 'actor_ada', role: 'BUILDER' });
+    }
   } else {
     const token = process.env.ASE_PROD_BEARER_TOKEN;
     if (!token) {
@@ -160,12 +191,16 @@ export function getPlatform(): PlatformApplication {
   };
 
   const handlers = createDemoNodeHandlers();
+  const orcfloEngine = new OrcfloEngine(orcfloPorts, handlers, modelGateway, clock);
   const application: PlatformApplication = {
     ports,
     commands: new AgentCommandService(ports),
     agents: new BoundedAgentRuntime(ports),
     workflows: new WorkflowRunner(ports, handlers),
     transactions: new TransactionService(ports),
+    orcflo: orcfloEngine,
+    triggers: new OrcfloTriggerService(orcfloPorts, orcfloEngine, clock),
+    blueprints: new OrcfloBlueprintService(orcfloPorts),
     persistence,
     mcpServers: new EmptyMcpServerRegistry(),
     avatar: new NoopAvatarSessionAdapter(),

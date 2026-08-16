@@ -12,6 +12,16 @@ import type {
   Workflow,
   WorkflowExecution,
 } from '../domain/schemas';
+import type {
+  ModelCallResult,
+  OrcfloBlueprint,
+  OrcfloMeteringRecord,
+  OrcfloModelProvider,
+  OrcfloRun,
+  OrcfloRunEvent,
+  OrcfloStepCacheEntry,
+  OrcfloTrigger,
+} from '../domain/orcflo';
 
 export type { AvatarSessionRef } from '../domain/schemas';
 
@@ -305,3 +315,85 @@ export type PlatformExtensionPorts = {
 };
 
 export type ExtendedPlatformPorts = PlatformPorts & PlatformExtensionPorts;
+
+// --- Orcflo engine ports (additive, see docs/ARCHITECTURE.md §5) ---
+
+export interface OrcfloRunRepository {
+  findById(tenantId: string, id: string): Promise<OrcfloRun | null>;
+  save(run: OrcfloRun): Promise<void>;
+  list(tenantId: string, options?: { workflowId?: string; limit?: number }): Promise<OrcfloRun[]>;
+  listByTrigger(tenantId: string, triggerId: string, limit?: number): Promise<OrcfloRun[]>;
+}
+
+export interface OrcfloRunEventRepository {
+  /** Append a stream event with the next per-run sequence number. */
+  append(event: OrcfloRunEvent): Promise<void>;
+  listForRun(tenantId: string, runId: string): Promise<OrcfloRunEvent[]>;
+}
+
+export interface OrcfloStepCacheRepository {
+  findByKey(tenantId: string, key: string): Promise<OrcfloStepCacheEntry | null>;
+  save(entry: OrcfloStepCacheEntry): Promise<void>;
+  /** Record a cache hit (increments `hits`, sets `lastHitAt`). */
+  recordHit(tenantId: string, key: string, atIso: string): Promise<void>;
+}
+
+export interface OrcfloMeteringRepository {
+  record(record: OrcfloMeteringRecord): Promise<void>;
+  list(tenantId: string, options?: { since?: string; limit?: number }): Promise<OrcfloMeteringRecord[]>;
+}
+
+export interface OrcfloModelProviderRepository {
+  findById(tenantId: string, id: string): Promise<OrcfloModelProvider | null>;
+  save(provider: OrcfloModelProvider): Promise<void>;
+  list(tenantId: string): Promise<OrcfloModelProvider[]>;
+}
+
+export interface OrcfloTriggerRepository {
+  findById(tenantId: string, id: string): Promise<OrcfloTrigger | null>;
+  save(trigger: OrcfloTrigger): Promise<void>;
+  list(tenantId: string, options?: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean }): Promise<OrcfloTrigger[]>;
+}
+
+export interface OrcfloBlueprintRepository {
+  findById(tenantId: string, id: string): Promise<OrcfloBlueprint | null>;
+  save(blueprint: OrcfloBlueprint): Promise<void>;
+  list(tenantId: string): Promise<OrcfloBlueprint[]>;
+}
+
+/**
+ * Persistence ports used by the Orcflo engine. Both the in-memory and
+ * the Prisma adapter implement this set; the engine receives the
+ * regular `PlatformPorts` plus these via `OrcfloRuntimePorts`.
+ */
+export type OrcfloPersistencePorts = {
+  runs: OrcfloRunRepository;
+  runEvents: OrcfloRunEventRepository;
+  stepCache: OrcfloStepCacheRepository;
+  metering: OrcfloMeteringRepository;
+  modelProviders: OrcfloModelProviderRepository;
+  triggers: OrcfloTriggerRepository;
+  blueprints: OrcfloBlueprintRepository;
+};
+
+export type OrcfloRuntimePorts = PlatformPorts & OrcfloPersistencePorts;
+
+/**
+ * Model provider gateway (fail-closed).
+ *
+ * The gateway never talks to an external service: `noop` providers
+ * refuse every call, `demo` providers return a deterministic echo for
+ * the explicitly ephemeral demo runtime, and `external` providers are
+ * refused until a current official SDK review exists (the platform has
+ * none). Metering for every accepted call is recorded by the engine.
+ */
+export interface ModelCallInput {
+  tenantId: string;
+  providerId: string;
+  prompt: string;
+  maxTokens: number;
+}
+
+export interface ModelProviderGateway {
+  call(provider: OrcfloModelProvider, input: ModelCallInput): Promise<ModelCallResult>;
+}

@@ -11,6 +11,14 @@ beforeAll(async () => {
   process.env.ASE_PERSISTENCE_MODE = 'memory';
   ({ POST: postAgentCommand } = await import('../app/api/v1/agent/commands/route'));
   ({ POST: postVoiceCommand } = await import('../app/api/v1/voice/commands/route'));
+  // The memory composition root wires a tenant-membership authority (Audit §1).
+  // Provision memberships for the route-test actors so the reconciled context
+  // matches each test's claimed role; a missing membership would otherwise
+  // fail the request with AUTHENTICATION_REQUIRED before any business logic.
+  const { getPlatform } = await import('../lib/server/platform');
+  const memberships = getPlatform().ports.tenantMembers;
+  await memberships?.upsert({ tenantId: 'tenant_route_test', actorId: 'actor_route_test', role: 'BUILDER' });
+  await memberships?.upsert({ tenantId: 'tenant_route_test', actorId: 'actor_route_viewer', role: 'VIEWER' });
 });
 
 function request(path: string, body: string, role = 'BUILDER', correlationId = 'corr_route_test') {
@@ -19,7 +27,8 @@ function request(path: string, body: string, role = 'BUILDER', correlationId = '
     headers: {
       'content-type': 'application/json',
       'x-ase-tenant-id': 'tenant_route_test',
-      'x-ase-actor-id': 'actor_route_test',
+      // Keep one actor per claimed role so membership reconciliation is exact.
+      'x-ase-actor-id': role === 'VIEWER' ? 'actor_route_viewer' : 'actor_route_test',
       'x-ase-role': role,
       'x-correlation-id': correlationId,
     },
