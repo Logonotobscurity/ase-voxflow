@@ -209,7 +209,7 @@ export const DomainEventSchema = z.object({
 }).strict();
 export type DomainEvent = z.infer<typeof DomainEventSchema>;
 
-export const OutboxStatusSchema = z.enum(['PENDING', 'PUBLISHED', 'FAILED']);
+export const OutboxStatusSchema = z.enum(['PENDING', 'CLAIMED', 'PUBLISHED', 'FAILED', 'DEAD_LETTERED']);
 export type OutboxStatus = z.infer<typeof OutboxStatusSchema>;
 
 export const OutboxMessageSchema = z.object({
@@ -225,6 +225,12 @@ export const OutboxMessageSchema = z.object({
   lastError: z.string().max(2_000).optional(),
   createdAt: DateTimeSchema,
   updatedAt: DateTimeSchema,
+  // Audit §3 — claim/lease fields. `claimedBy` is the worker id that
+  // holds the row; `claimedUntil` is the lease expiry. A row in
+  // `CLAIMED` status is owned by exactly one worker until the lease
+  // expires; another worker may reclaim after the expiry.
+  claimedBy: z.string().max(200).optional(),
+  claimedUntil: DateTimeSchema.optional(),
 }).strict();
 export type OutboxMessage = z.infer<typeof OutboxMessageSchema>;
 

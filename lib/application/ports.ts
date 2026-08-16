@@ -88,6 +88,34 @@ export interface OutboxRepository {
   findById(tenantId: string, id: string): Promise<OutboxMessage | null>;
   listPending(tenantId: string, limit?: number): Promise<OutboxMessage[]>;
   save(message: OutboxMessage): Promise<void>;
+  /**
+   * Audit §3 — atomically claim a batch of PENDING or expired-lease
+   * outbox messages for this worker. The implementation must be safe
+   * under concurrent workers: a row is given to exactly one worker.
+   * Returns the rows the worker now owns, each with `status =
+   * 'CLAIMED'`, `claimedBy = workerId`, and `claimedUntil = now +
+   * leaseMs`. The repository MUST also reclaim rows whose
+   * `claimedUntil` is in the past, even if their previous status
+   * is `CLAIMED`.
+   */
+  claimBatch(workerId: string, leaseMs: number, limit: number): Promise<OutboxMessage[]>;
+  /**
+   * Audit §3 — mark a claimed row as published. Sets `status =
+   * 'PUBLISHED'`, `publishedAt = now`, and clears claim fields.
+   */
+  markPublished(id: string, publishedAtIso: string): Promise<void>;
+  /**
+   * Audit §3 — record a failed attempt. Increments `attempts`,
+   * records `lastError`, and reschedules `availableAt` per the
+   * worker's retry policy. The caller decides whether the row is
+   * still retriable (status stays `PENDING`) or dead-lettered.
+   */
+  recordAttemptFailure(id: string, lastError: string, availableAtIso: string): Promise<OutboxMessage>;
+  /**
+   * Audit §3 — dead-letter a row that exceeded the maximum attempts.
+   * Sets `status = 'DEAD_LETTERED'`, records `lastError`.
+   */
+  markDeadLettered(id: string, lastError: string): Promise<void>;
 }
 
 export type PersistencePorts = {

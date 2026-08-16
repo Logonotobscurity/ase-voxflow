@@ -192,6 +192,100 @@ export class InMemoryOutboxRepository implements OutboxRepository {
     if (collision) throw new PlatformError('CONFLICT', 'An outbox message already exists for this event.');
     this.store.state.outbox.set(value.id, copy(value));
   }
+
+  // Audit §3 — claim/lease semantics. The in-memory adapter uses a
+  // simple serial lock so a single process can simulate the
+  // FOR UPDATE SKIP LOCKED semantics that the Prisma adapter will
+  // use in production.
+  private claimQueue: Promise<void> = Promise.resolve();
+
+  async claimBatch(workerId: string, leaseMs: number, limit: number): Promise<OutboxMessage[]> {
+    const previous = this.claimQueue;
+    let release: () => void = () => {};
+    this.claimQueue = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      const claimedUntilIso = new Date(nowMs + Math.max(100, Math.trunc(leaseMs))).toISOString();
+      const candidates = [...this.store.state.outbox.values()]
+        .filter((m) => (
+          (m.status === 'PENDING' && Date.parse(m.availableAt) <= nowMs)
+          || (m.status === 'CLAIMED' && m.claimedUntil !== undefined && Date.parse(m.claimedUntil) <= nowMs)
+        ))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .slice(0, safeLimit);
+      const result: OutboxMessage[] = [];
+      for (const candidate of candidates) {
+        const next: OutboxMessage = {
+          ...copy(candidate),
+          status: 'CLAIMED',
+          claimedBy: workerId,
+          claimedUntil: claimedUntilIso,
+          updatedAt: nowIso,
+        };
+        this.store.state.outbox.set(next.id, copy(next));
+        result.push(copy(next));
+      }
+      return result;
+    } finally {
+      release();
+    }
+  }
+
+  async markPublished(id: string, publishedAtIso: string): Promise<void> {
+    const value = this.store.state.outbox.get(id);
+    if (!value) throw new PlatformError('NOT_FOUND', `Outbox message ${id} was not found.`);
+    if (value.status !== 'CLAIMED') {
+      throw new PlatformError('CONFLICT', `Outbox message ${id} is not in CLAIMED status.`);
+    }
+    const updated: OutboxMessage = {
+      ...copy(value),
+      status: 'PUBLISHED',
+      publishedAt: publishedAtIso,
+      claimedBy: undefined,
+      claimedUntil: undefined,
+      lastError: undefined,
+      updatedAt: publishedAtIso,
+    };
+    this.store.state.outbox.set(id, copy(updated));
+  }
+
+  async recordAttemptFailure(id: string, lastError: string, availableAtIso: string): Promise<OutboxMessage> {
+    const value = this.store.state.outbox.get(id);
+    if (!value) throw new PlatformError('NOT_FOUND', `Outbox message ${id} was not found.`);
+    if (value.status !== 'CLAIMED') {
+      throw new PlatformError('CONFLICT', `Outbox message ${id} is not in CLAIMED status.`);
+    }
+    const updated: OutboxMessage = {
+      ...copy(value),
+      status: 'PENDING',
+      attempts: value.attempts + 1,
+      lastError,
+      availableAt: availableAtIso,
+      claimedBy: undefined,
+      claimedUntil: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    this.store.state.outbox.set(id, copy(updated));
+    return copy(updated);
+  }
+
+  async markDeadLettered(id: string, lastError: string): Promise<void> {
+    const value = this.store.state.outbox.get(id);
+    if (!value) throw new PlatformError('NOT_FOUND', `Outbox message ${id} was not found.`);
+    const nowIso = new Date().toISOString();
+    const updated: OutboxMessage = {
+      ...copy(value),
+      status: 'DEAD_LETTERED',
+      lastError,
+      claimedBy: undefined,
+      claimedUntil: undefined,
+      updatedAt: nowIso,
+    };
+    this.store.state.outbox.set(id, copy(updated));
+  }
 }
 
 export class InMemoryEventBus implements EventPublisher, EventLog {

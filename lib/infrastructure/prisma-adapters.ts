@@ -294,6 +294,105 @@ export class PrismaOutboxRepository implements OutboxRepository {
     });
     if (updated.count === 0) await this.prisma.outboxMessage.create({ data: { id: value.id, ...data } });
   }
+
+  // Audit §3 — claim/lease semantics on the Prisma adapter.
+  // Uses `FOR UPDATE SKIP LOCKED` for atomic claim, and reclaims rows
+  // whose `claimedUntil` is in the past even when their status is
+  // still `CLAIMED`. The schema must include `claimedBy` and
+  // `claimedUntil` columns; see the capability-extension migration.
+  async claimBatch(workerId: string, leaseMs: number, limit: number): Promise<OutboxMessage[]> {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+    const leaseMsClamped = Math.max(100, Math.trunc(leaseMs));
+    const now = new Date();
+    const claimedUntil = new Date(now.getTime() + leaseMsClamped);
+    // Atomically select candidates. Prisma's typed query API does not
+    // expose `FOR UPDATE SKIP LOCKED`; use a raw SELECT and an atomic
+    // UPDATE in a single transaction. Two workers will not see the
+    // same row because the UPDATE locks the selected rows.
+    return await (this.prisma as PrismaClient).$transaction(async (tx) => {
+      // The generic is suppressed at the call site; the row shape is
+      // documented in the SQL above and asserted via the row.id cast.
+      const candidates = (await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM "OutboxMessage"
+        WHERE (
+          ("status" = 'PENDING' AND "availableAt" <= ${now})
+          OR ("status" = 'CLAIMED' AND "claimedUntil" <= ${now})
+        )
+        ORDER BY "createdAt" ASC
+        LIMIT ${safeLimit}
+        FOR UPDATE SKIP LOCKED
+      `)) as Array<{ id: string }>;
+      if (candidates.length === 0) return [];
+      const ids = candidates.map((c) => c.id);
+      await tx.outboxMessage.updateMany({
+        where: { id: { in: ids } },
+        data: {
+          status: 'CLAIMED',
+          claimedBy: workerId,
+          claimedUntil,
+          updatedAt: now,
+        },
+      });
+      const rows = await tx.outboxMessage.findMany({ where: { id: { in: ids } } });
+      return rows.map((row) => mapOutbox(row));
+    });
+  }
+
+  async markPublished(id: string, publishedAtIso: string): Promise<void> {
+    const publishedAt = new Date(publishedAtIso);
+    const updated = await this.prisma.outboxMessage.updateMany({
+      where: { id, status: 'CLAIMED' },
+      data: {
+        status: 'PUBLISHED',
+        publishedAt,
+        lastError: null,
+        claimedBy: null,
+        claimedUntil: null,
+        updatedAt: publishedAt,
+      },
+    });
+    if (updated.count === 0) {
+      throw new PlatformError('CONFLICT', `Outbox message ${id} is not in CLAIMED status.`);
+    }
+  }
+
+  async recordAttemptFailure(id: string, lastError: string, availableAtIso: string): Promise<OutboxMessage> {
+    const availableAt = new Date(availableAtIso);
+    const updated = await this.prisma.outboxMessage.updateMany({
+      where: { id, status: 'CLAIMED' },
+      data: {
+        status: 'PENDING',
+        attempts: { increment: 1 },
+        lastError,
+        availableAt,
+        claimedBy: null,
+        claimedUntil: null,
+        updatedAt: availableAt,
+      },
+    });
+    if (updated.count === 0) {
+      throw new PlatformError('CONFLICT', `Outbox message ${id} is not in CLAIMED status.`);
+    }
+    const row = await this.prisma.outboxMessage.findFirst({ where: { id } });
+    if (!row) throw new PlatformError('NOT_FOUND', `Outbox message ${id} was not found.`);
+    return mapOutbox(row);
+  }
+
+  async markDeadLettered(id: string, lastError: string): Promise<void> {
+    const updated = await this.prisma.outboxMessage.updateMany({
+      where: { id, status: { in: ['CLAIMED', 'PENDING'] } },
+      data: {
+        status: 'DEAD_LETTERED',
+        lastError,
+        claimedBy: null,
+        claimedUntil: null,
+        updatedAt: new Date(),
+      },
+    });
+    if (updated.count === 0) {
+      throw new PlatformError('CONFLICT', `Outbox message ${id} could not be dead-lettered.`);
+    }
+  }
 }
 
 export class PrismaEventStore implements EventPublisher, EventLog {

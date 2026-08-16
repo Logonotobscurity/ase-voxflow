@@ -62,8 +62,10 @@ enum ApprovalStatus {
 
 enum OutboxStatus {
   PENDING
+  CLAIMED
   PUBLISHED
   FAILED
+  DEAD_LETTERED
 }
 
 model Tenant {
@@ -260,6 +262,11 @@ model OutboxMessage {
   availableAt DateTime     @default(now())
   publishedAt DateTime?
   lastError   String?
+  // Audit §3 — claim/lease fields. A row in `CLAIMED` status is owned
+  // by exactly one worker until the lease expires. Another worker may
+  // reclaim after the expiry.
+  claimedBy   String?
+  claimedUntil DateTime?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -267,6 +274,7 @@ model OutboxMessage {
 
   @@index([tenantId, status, availableAt])
   @@index([topic, status, availableAt])
+  @@index([status, claimedUntil])
 }
 
 // Capability 04 — Multi-user transcriber (additive).
