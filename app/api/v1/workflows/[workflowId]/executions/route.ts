@@ -15,7 +15,7 @@ export async function GET(
   { params }: { params: Promise<{ workflowId: string }> },
 ) {
   try {
-    const context = getRequestContext(request);
+    const context = await getRequestContext(request);
     const { workflowId } = await params;
     const platform = getPlatform();
     const executions = await platform.ports.executions.listForWorkflow(context.tenantId, workflowId);
@@ -30,7 +30,7 @@ export async function POST(
   { params }: { params: Promise<{ workflowId: string }> },
 ) {
   try {
-    const context = getRequestContext(request);
+    const context = await getRequestContext(request);
     const { workflowId } = await params;
     const body = await request.json().catch(() => ({}));
     const input = ExecuteWorkflowSchema.parse(body);

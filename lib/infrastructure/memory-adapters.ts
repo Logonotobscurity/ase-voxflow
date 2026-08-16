@@ -5,6 +5,7 @@ import type {
   OutboxMessage,
   ToolDefinition,
   Transaction,
+  Transcript,
   Workflow,
   WorkflowExecution,
 } from '../domain/schemas';
@@ -13,16 +14,20 @@ import { createOutboxMessage } from '../domain/events';
 import type {
   AgentRepository,
   ApprovalRepository,
+  Clock,
   EventLog,
   EventPublisher,
   ExecutionRepository,
   OutboxRepository,
   PersistencePorts,
+  TenantMembership,
+  TenantMembershipRepository,
   ToolExecutor,
   ToolInvocation,
   ToolRepository,
   ToolResult,
   TransactionRepository,
+  TranscriptRepository,
   UnitOfWork,
   WorkflowRepository,
 } from '../application/ports';
@@ -45,7 +50,10 @@ type InMemoryState = {
   transactions: Map<string, Transaction>;
   approvals: Map<string, HumanApproval>;
   events: Map<string, DomainEvent>;
-  outbox: Map<string, OutboxMessage>;
+  outbox: Map<string,OutboxMessage>;
+  transcripts: Map<string, Transcript>;
+  // Audit §1 — tenant memberships. Keyed by `${tenantId}::${actorId}`.
+  memberships: Map<string, { tenantId: string; actorId: string; role: 'ADMIN' | 'BUILDER' | 'OPERATOR' | 'APPROVER' | 'VIEWER' }>;
 };
 
 function emptyState(): InMemoryState {
@@ -58,6 +66,8 @@ function emptyState(): InMemoryState {
     approvals: new Map(),
     events: new Map(),
     outbox: new Map(),
+    transcripts: new Map(),
+    memberships: new Map(),
   };
 }
 
@@ -182,6 +192,100 @@ export class InMemoryOutboxRepository implements OutboxRepository {
     if (collision) throw new PlatformError('CONFLICT', 'An outbox message already exists for this event.');
     this.store.state.outbox.set(value.id, copy(value));
   }
+
+  // Audit §3 — claim/lease semantics. The in-memory adapter uses a
+  // simple serial lock so a single process can simulate the
+  // FOR UPDATE SKIP LOCKED semantics that the Prisma adapter will
+  // use in production.
+  private claimQueue: Promise<void> = Promise.resolve();
+
+  async claimBatch(workerId: string, leaseMs: number, limit: number): Promise<OutboxMessage[]> {
+    const previous = this.claimQueue;
+    let release: () => void = () => {};
+    this.claimQueue = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      const claimedUntilIso = new Date(nowMs + Math.max(100, Math.trunc(leaseMs))).toISOString();
+      const candidates = [...this.store.state.outbox.values()]
+        .filter((m) => (
+          (m.status === 'PENDING' && Date.parse(m.availableAt) <= nowMs)
+          || (m.status === 'CLAIMED' && m.claimedUntil !== undefined && Date.parse(m.claimedUntil) <= nowMs)
+        ))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .slice(0, safeLimit);
+      const result: OutboxMessage[] = [];
+      for (const candidate of candidates) {
+        const next: OutboxMessage = {
+          ...copy(candidate),
+          status: 'CLAIMED',
+          claimedBy: workerId,
+          claimedUntil: claimedUntilIso,
+          updatedAt: nowIso,
+        };
+        this.store.state.outbox.set(next.id, copy(next));
+        result.push(copy(next));
+      }
+      return result;
+    } finally {
+      release();
+    }
+  }
+
+  async markPublished(id: string, publishedAtIso: string): Promise<void> {
+    const value = this.store.state.outbox.get(id);
+    if (!value) throw new PlatformError('NOT_FOUND', `Outbox message ${id} was not found.`);
+    if (value.status !== 'CLAIMED') {
+      throw new PlatformError('CONFLICT', `Outbox message ${id} is not in CLAIMED status.`);
+    }
+    const updated: OutboxMessage = {
+      ...copy(value),
+      status: 'PUBLISHED',
+      publishedAt: publishedAtIso,
+      claimedBy: undefined,
+      claimedUntil: undefined,
+      lastError: undefined,
+      updatedAt: publishedAtIso,
+    };
+    this.store.state.outbox.set(id, copy(updated));
+  }
+
+  async recordAttemptFailure(id: string, lastError: string, availableAtIso: string): Promise<OutboxMessage> {
+    const value = this.store.state.outbox.get(id);
+    if (!value) throw new PlatformError('NOT_FOUND', `Outbox message ${id} was not found.`);
+    if (value.status !== 'CLAIMED') {
+      throw new PlatformError('CONFLICT', `Outbox message ${id} is not in CLAIMED status.`);
+    }
+    const updated: OutboxMessage = {
+      ...copy(value),
+      status: 'PENDING',
+      attempts: value.attempts + 1,
+      lastError,
+      availableAt: availableAtIso,
+      claimedBy: undefined,
+      claimedUntil: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    this.store.state.outbox.set(id, copy(updated));
+    return copy(updated);
+  }
+
+  async markDeadLettered(id: string, lastError: string): Promise<void> {
+    const value = this.store.state.outbox.get(id);
+    if (!value) throw new PlatformError('NOT_FOUND', `Outbox message ${id} was not found.`);
+    const nowIso = new Date().toISOString();
+    const updated: OutboxMessage = {
+      ...copy(value),
+      status: 'DEAD_LETTERED',
+      lastError,
+      claimedBy: undefined,
+      claimedUntil: undefined,
+      updatedAt: nowIso,
+    };
+    this.store.state.outbox.set(id, copy(updated));
+  }
 }
 
 export class InMemoryEventBus implements EventPublisher, EventLog {
@@ -242,9 +346,13 @@ export class InMemoryUnitOfWork implements UnitOfWork {
 export function createInMemoryPersistencePorts(): {
   store: InMemoryPlatformStore;
   ports: PersistencePorts;
+  transcripts: InMemoryTranscriptRepository;
+  tenantMembers: InMemoryTenantMembershipRepository;
 } {
   const store = new InMemoryPlatformStore();
   const outbox = new InMemoryOutboxRepository(store);
+  const transcripts = new InMemoryTranscriptRepository(store);
+  const tenantMembers = new InMemoryTenantMembershipRepository(store);
   const ports: PersistencePorts = {
     agents: new InMemoryAgentRepository(store),
     tools: new InMemoryToolRepository(store),
@@ -255,7 +363,7 @@ export function createInMemoryPersistencePorts(): {
     events: new InMemoryEventBus(store, outbox),
     outbox,
   };
-  return { store, ports };
+  return { store, ports, transcripts, tenantMembers };
 }
 
 export type ToolHandler = (invocation: ToolInvocation) => Promise<ToolResult> | ToolResult;
@@ -272,5 +380,86 @@ export class DeterministicToolExecutor implements ToolExecutor {
       throw new PlatformError('TIMEOUT', `Tool ${invocation.tool.name} was aborted.`, { retryable: true });
     }
     return handler(invocation);
+  }
+}
+
+// --- Audit §1 — In-memory tenant membership repository (additive) ---
+
+export class InMemoryTenantMembershipRepository implements TenantMembershipRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+
+  private key(tenantId: string, actorId: string): string {
+    return `${tenantId}::${actorId}`;
+  }
+
+  async find(tenantId: string, actorId: string) {
+    const v = this.store.state.memberships.get(this.key(tenantId, actorId));
+    return v ? copy(v) : null;
+  }
+
+  async listForActor(actorId: string) {
+    return [...this.store.state.memberships.values()]
+      .filter((m) => m.actorId === actorId)
+      .map(copy);
+  }
+
+  async upsert(membership: TenantMembership): Promise<void> {
+    this.store.state.memberships.set(this.key(membership.tenantId, membership.actorId), copy(membership));
+  }
+}
+
+// --- Capability 04 — In-memory transcript repository (additive) ---
+
+export class InMemoryTranscriptRepository implements TranscriptRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+
+  async save(transcript: Transcript): Promise<void> {
+    assertTenantOwnership(this.store.state.transcripts.get(transcript.id), transcript);
+    this.store.state.transcripts.set(transcript.id, copy(transcript));
+  }
+
+  async listBySession(tenantId: string, sessionId: string, limit = 100): Promise<Transcript[]> {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+    return [...this.store.state.transcripts.values()]
+      .filter((t) => t.tenantId === tenantId && t.sessionId === sessionId)
+      .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
+
+  async listByParticipant(tenantId: string, participantId: string, limit = 100): Promise<Transcript[]> {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+    return [...this.store.state.transcripts.values()]
+      .filter((t) => t.tenantId === tenantId && t.participantId === participantId)
+      .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
+}
+
+// --- Capability 01 — System clock (default; tests can inject a fixed clock) ---
+
+export class SystemClock implements Clock {
+  now(): number {
+    return Date.now();
+  }
+  isoNow(): string {
+    return new Date().toISOString();
+  }
+}
+
+export class FixedClock implements Clock {
+  private currentIso: string;
+  constructor(fixedIso: string) {
+    this.currentIso = fixedIso;
+  }
+  now(): number {
+    return Date.parse(this.currentIso);
+  }
+  isoNow(): string {
+    return this.currentIso;
+  }
+  advance(deltaMs: number): void {
+    this.currentIso = new Date(Date.parse(this.currentIso) + deltaMs).toISOString();
   }
 }

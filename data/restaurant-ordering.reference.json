@@ -1,0 +1,31 @@
+{
+  "name": "Restaurant ordering — reference pattern",
+  "description": "Reference workflow that exercises the canonical transactional pattern. It is intentionally generic: every node maps to a reusable primitive (voice command, tool lookup, availability check, human approval, transaction, confirmation, action). Adapting it to a specific merchant means wiring real tool/handler implementations; the graph itself does not change.",
+  "status": "DRAFT",
+  "metadata": {
+    "referenceFor": "capability-12-restaurant-ordering",
+    "intent": "Use this as a pattern, not a special subsystem.",
+    "comment": "Capability 12 — Reference workflow demonstrating the generic transactional pattern (INTENT → ENTITY → AVAILABILITY → SELECTION → VALIDATION → CONFIRMATION → TRANSACTION → EXECUTION → VERIFICATION). This is a canonical Workflow record (matches the WorkflowCreateSchema in lib/domain/schemas.ts). It is data, not a competing engine. Importing it and persisting it through /api/v1/workflows will let it execute under the existing workflow runner."
+  },
+  "nodes": [
+    { "id": "voice_intake", "type": "voice_command", "label": "Capture voice order", "configuration": { "executionMode": "demo" }, "retryPolicy": { "maxRetries": 0, "backoffMs": 250 }, "metadata": { "step": "intake" } },
+    { "id": "menu_lookup", "type": "tool", "label": "Look up menu", "configuration": { "executionMode": "demo", "toolName": "menu_lookup" }, "retryPolicy": { "maxRetries": 1, "backoffMs": 500 }, "metadata": { "step": "entity_extraction" } },
+    { "id": "availability_check", "type": "tool", "label": "Check availability", "configuration": { "executionMode": "demo", "toolName": "availability_check" }, "retryPolicy": { "maxRetries": 2, "backoffMs": 500 }, "metadata": { "step": "availability" } },
+    { "id": "selection", "type": "condition", "label": "Select valid items", "configuration": { "executionMode": "demo" }, "retryPolicy": { "maxRetries": 0, "backoffMs": 250 }, "metadata": { "step": "selection" } },
+    { "id": "validate", "type": "tool", "label": "Validate order", "configuration": { "executionMode": "demo", "toolName": "order_validate" }, "retryPolicy": { "maxRetries": 1, "backoffMs": 250 }, "metadata": { "step": "validation" } },
+    { "id": "human_approval", "type": "human_approval", "label": "Customer confirmation", "configuration": { "executionMode": "demo" }, "retryPolicy": { "maxRetries": 0, "backoffMs": 250 }, "metadata": { "step": "confirmation" } },
+    { "id": "transaction", "type": "transaction", "label": "Authorise payment", "configuration": { "executionMode": "demo", "transactionType": "purchase" }, "retryPolicy": { "maxRetries": 0, "backoffMs": 250 }, "metadata": { "step": "transaction" } },
+    { "id": "fulfillment", "type": "action", "label": "Send to kitchen / merchant", "configuration": { "executionMode": "demo" }, "retryPolicy": { "maxRetries": 1, "backoffMs": 500 }, "metadata": { "step": "execution" } },
+    { "id": "receipt", "type": "action", "label": "Send confirmation receipt", "configuration": { "executionMode": "demo" }, "retryPolicy": { "maxRetries": 0, "backoffMs": 250 }, "metadata": { "step": "verification" } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "voice_intake", "target": "menu_lookup", "metadata": {} },
+    { "id": "e2", "source": "menu_lookup", "target": "availability_check", "metadata": {} },
+    { "id": "e3", "source": "availability_check", "target": "selection", "metadata": {} },
+    { "id": "e4", "source": "selection", "target": "validate", "metadata": {} },
+    { "id": "e5", "source": "validate", "target": "human_approval", "metadata": {} },
+    { "id": "e6", "source": "human_approval", "target": "transaction", "metadata": {} },
+    { "id": "e7", "source": "transaction", "target": "fulfillment", "metadata": {} },
+    { "id": "e8", "source": "fulfillment", "target": "receipt", "metadata": {} }
+  ]
+}

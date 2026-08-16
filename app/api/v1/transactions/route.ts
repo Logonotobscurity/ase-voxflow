@@ -16,7 +16,7 @@ const RequestTransactionSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const context = getRequestContext(request);
+    const context = await getRequestContext(request);
     const input = RequestTransactionSchema.parse(await request.json());
     const platform = getPlatform();
     const result = await platform.transactions.request({ ...input, context });

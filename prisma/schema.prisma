@@ -62,8 +62,10 @@ enum ApprovalStatus {
 
 enum OutboxStatus {
   PENDING
+  CLAIMED
   PUBLISHED
   FAILED
+  DEAD_LETTERED
 }
 
 model Tenant {
@@ -82,6 +84,8 @@ model Tenant {
   transactions Transaction[]
   approvals    HumanApproval[]
   outbox       OutboxMessage[]
+  transcripts  Transcript[]
+  mcpServers   McpServer[]
 }
 
 model TenantMember {
@@ -131,6 +135,11 @@ model ToolDefinition {
   timeoutMs    Int
   cost         Json
   availability String
+  // Capability 05 / 06 — tool provenance. `source` distinguishes built-in
+  // from runtime-generated from MCP-bridged tools. `trusted` gates
+  // generated / MCP tools through the existing `evaluateToolPolicy` path.
+  source       String   @default("static")
+  trusted      Boolean  @default(false)
   metadata     Json     @default("{}")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -138,6 +147,7 @@ model ToolDefinition {
 
   @@unique([tenantId, name])
   @@index([tenantId, availability])
+  @@index([tenantId, source, trusted])
 }
 
 model Workflow {
@@ -252,6 +262,11 @@ model OutboxMessage {
   availableAt DateTime     @default(now())
   publishedAt DateTime?
   lastError   String?
+  // Audit §3 — claim/lease fields. A row in `CLAIMED` status is owned
+  // by exactly one worker until the lease expires. Another worker may
+  // reclaim after the expiry.
+  claimedBy   String?
+  claimedUntil DateTime?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -259,4 +274,51 @@ model OutboxMessage {
 
   @@index([tenantId, status, availableAt])
   @@index([topic, status, availableAt])
+  @@index([status, claimedUntil])
+}
+
+// Capability 04 — Multi-user transcriber (additive).
+// Persists already-transcribed input lines with session/participant
+// metadata. The associated audit event for a command still excludes
+// raw text per `agent-command-service.ts`; this is a separate durable
+// record for the UI, search, and analytics to re-derive text on demand.
+model Transcript {
+  id                  String   @id
+  tenantId            String
+  sessionId           String
+  participantId       String
+  occurredAt          DateTime @default(now())
+  language            String   @default("en")
+  text                String
+  confidence          Float
+  final               Boolean  @default(true)
+  intent              String?
+  riskLevel           String?
+  requiresConfirmation Boolean?
+  commandId           String?
+  metadata            Json     @default("{}")
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sessionId, occurredAt])
+  @@index([tenantId, participantId, occurredAt])
+  @@index([tenantId, commandId])
+}
+
+// Capability 06 — MCP server allowlist. A row with `trusted = true`
+// is the only kind `evaluateWorkflowNodePolicy` will allow at runtime.
+model McpServer {
+  id           String   @id
+  tenantId     String
+  name         String
+  transport    String
+  endpoint     String
+  identityRef  String
+  allowedTools Json     @default("[]")
+  trusted      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name])
+  @@index([tenantId, trusted])
 }

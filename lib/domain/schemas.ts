@@ -209,7 +209,7 @@ export const DomainEventSchema = z.object({
 }).strict();
 export type DomainEvent = z.infer<typeof DomainEventSchema>;
 
-export const OutboxStatusSchema = z.enum(['PENDING', 'PUBLISHED', 'FAILED']);
+export const OutboxStatusSchema = z.enum(['PENDING', 'CLAIMED', 'PUBLISHED', 'FAILED', 'DEAD_LETTERED']);
 export type OutboxStatus = z.infer<typeof OutboxStatusSchema>;
 
 export const OutboxMessageSchema = z.object({
@@ -225,6 +225,12 @@ export const OutboxMessageSchema = z.object({
   lastError: z.string().max(2_000).optional(),
   createdAt: DateTimeSchema,
   updatedAt: DateTimeSchema,
+  // Audit §3 — claim/lease fields. `claimedBy` is the worker id that
+  // holds the row; `claimedUntil` is the lease expiry. A row in
+  // `CLAIMED` status is owned by exactly one worker until the lease
+  // expires; another worker may reclaim after the expiry.
+  claimedBy: z.string().max(200).optional(),
+  claimedUntil: DateTimeSchema.optional(),
 }).strict();
 export type OutboxMessage = z.infer<typeof OutboxMessageSchema>;
 
@@ -318,5 +324,159 @@ export const AgentCommandSchema = z.object({
   requiresConfirmation: z.boolean(),
   target: z.object({ workflowId: IdSchema.optional() }).strict().default({}),
   createdAt: DateTimeSchema,
+  // Capability 02 / 04 — optional participant/session metadata for
+  // multi-user voice contexts. Absent for plain text commands and
+  // legacy callers; the audit event includes them when present.
+  participantId: IdSchema.optional(),
+  sessionId: IdSchema.optional(),
 }).strict();
 export type AgentCommand = z.infer<typeof AgentCommandSchema>;
+
+// --- Capability extension contracts (additive, see docs/ARCHITECTURE.md §5) ---
+
+/**
+ * Capability 04 — Multi-user transcriber.
+ *
+ * Persists an already-transcribed input line with session and participant
+ * metadata. The raw `text` is required for re-derivation but the audit
+ * event for an associated command must still exclude raw text per the
+ * privacy rule in `lib/application/agent-command-service.ts`.
+ */
+export const TranscriptSchema = z.object({
+  id: IdSchema,
+  tenantId: IdSchema,
+  sessionId: IdSchema,
+  participantId: IdSchema,
+  occurredAt: DateTimeSchema,
+  language: z.string().min(2).max(10).default('en'),
+  text: z.string().min(1).max(8_000),
+  confidence: z.number().min(0).max(1),
+  final: z.boolean().default(true),
+  intent: VoiceIntentSchema.optional(),
+  riskLevel: ToolRiskSchema.optional(),
+  requiresConfirmation: z.boolean().optional(),
+  commandId: IdSchema.optional(),
+  metadata: MetadataSchema,
+}).strict();
+export type Transcript = z.infer<typeof TranscriptSchema>;
+
+/**
+ * Capability 07 — Structured output for TTS / agent completion.
+ *
+ * The runtime never depends on a TTS provider; this contract lets the
+ * planner declare the cue a future expressive-TTS adapter would render.
+ * `tone` is closed for stability; `emotion` is a short free-form label.
+ */
+export const TtsToneSchema = z.enum(['calm', 'confident', 'urgent', 'warm', 'neutral']);
+export type TtsTone = z.infer<typeof TtsToneSchema>;
+export const TtsCueSchema = z.object({
+  tone: TtsToneSchema,
+  emotion: z.string().min(1).max(40),
+  speed: z.number().min(0.5).max(2.0).default(1.0),
+}).strict();
+export type TtsCue = z.infer<typeof TtsCueSchema>;
+
+/**
+ * Capability 01 / 07 — Agent completion proposal union.
+ *
+ * Promoted from a local const in `lib/application/agent-runtime.ts` to a
+ * canonical contract so adapters, planners and the workflow runner share
+ * one source of truth. The `tts` cue is opt-in; a provider-absent
+ * runtime simply ignores it.
+ */
+export const AgentProposalSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('invoke_tool'),
+    toolId: z.string().min(1).max(200),
+    input: z.record(z.string(), z.unknown()).default({}),
+  }).strict(),
+  z.object({
+    action: z.literal('complete'),
+    summary: z.string().min(1).max(2_000),
+    tts: TtsCueSchema.optional(),
+  }).strict(),
+  z.object({
+    action: z.literal('request_approval'),
+    toolId: z.string().min(1).max(200),
+    reason: z.string().min(1).max(500),
+  }).strict(),
+  z.object({
+    action: z.literal('abort'),
+    reason: z.string().min(1).max(500),
+  }).strict(),
+]);
+export type AgentProposal = z.infer<typeof AgentProposalSchema>;
+
+/**
+ * Capability 05 / 06 — Tool provenance.
+ *
+ * `source` distinguishes a built-in/registered tool from a runtime-
+ * generated one and from an MCP-bridged tool. `trusted` gates
+ * generated/MCP tools through the existing `evaluateToolPolicy` path
+ * (the deny branch is the default for `trusted === false`).
+ */
+export const ToolSourceSchema = z.enum(['static', 'generated', 'mcp']);
+export type ToolSource = z.infer<typeof ToolSourceSchema>;
+
+/**
+ * Capability 06 — MCP server config.
+ *
+ * This is a *contract* only. No transport, no client, no allowlist
+ * storage ships in this increment. The fields below are the minimum
+ * a future `McpServerRegistry` port must capture.
+ */
+export const McpTransportSchema = z.enum(['stdio', 'http_sse', 'streamable_http']);
+export type McpTransport = z.infer<typeof McpTransportSchema>;
+export const McpServerConfigSchema = z.object({
+  id: IdSchema,
+  tenantId: IdSchema,
+  name: z.string().min(1).max(100),
+  transport: McpTransportSchema,
+  endpoint: z.string().min(1).max(500),
+  identityRef: z.string().min(1).max(200),
+  allowedTools: z.array(z.string().min(1).max(100)).max(200).default([]),
+  trusted: z.boolean().default(false),
+  createdAt: DateTimeSchema,
+  updatedAt: DateTimeSchema,
+}).strict();
+export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
+
+/**
+ * Capability 10 — Avatar provider adapter shape (no provider added).
+ *
+ * A future Tavus / Bithuman / LemonSlice adapter will implement this
+ * interface. The contract is here so the canvas/UI can render an
+ * "avatar not configured" state without coupling to any vendor.
+ */
+export const AvatarProviderNameSchema = z.enum(['tavus', 'bithuman', 'lemonslice', 'custom', 'none']);
+export type AvatarProviderName = z.infer<typeof AvatarProviderNameSchema>;
+export const AvatarSessionRefSchema = z.object({
+  provider: AvatarProviderNameSchema,
+  sessionId: z.string().min(1).max(200),
+  tenantId: IdSchema,
+  participantId: IdSchema,
+  createdAt: DateTimeSchema,
+}).strict();
+export type AvatarSessionRef = z.infer<typeof AvatarSessionRefSchema>;
+
+/**
+ * Capability 01 — Clock port.
+ *
+ * Defaults to wall clock via `Date.now()`; tests can inject a fixed
+ * clock to make the bounded-runtime verification reproducible without
+ * faking timers. Adding it as a schema keeps the surface uniform.
+ */
+export const ClockTickSchema = z.object({
+  nowIso: DateTimeSchema,
+  nowMs: z.number().int().nonnegative(),
+}).strict();
+export type ClockTick = z.infer<typeof ClockTickSchema>;
+
+// Extend ToolDefinitionSchema with the provenance fields. Done as a
+// separate export so it is applied in a single `extend` at the adapter
+// layer; the original ToolDefinitionSchema above is preserved untouched.
+export const ToolProvenanceFieldsSchema = z.object({
+  source: ToolSourceSchema.default('static'),
+  trusted: z.boolean().default(false),
+}).strict();
+export type ToolProvenanceFields = z.infer<typeof ToolProvenanceFieldsSchema>;

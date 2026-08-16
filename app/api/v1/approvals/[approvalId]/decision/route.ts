@@ -14,7 +14,7 @@ export async function POST(
   { params }: { params: Promise<{ approvalId: string }> },
 ) {
   try {
-    const context = getRequestContext(request);
+    const context = await getRequestContext(request);
     const { approvalId } = await params;
     const input = ApprovalDecisionSchema.parse(await request.json());
     const platform = getPlatform();

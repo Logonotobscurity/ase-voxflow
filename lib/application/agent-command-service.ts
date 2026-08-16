@@ -34,6 +34,13 @@ export type ProposeAgentCommandRequest = {
   text: string;
   modality: AgentCommandModality;
   workflowId?: string;
+  /**
+   * Capability 02 / 04 — optional participant and session identifiers for
+   * multi-user voice contexts. When omitted (legacy / text-only callers)
+   * the audit event simply does not include these keys.
+   */
+  participantId?: string;
+  sessionId?: string;
   context: ActorContext;
 };
 
@@ -78,6 +85,8 @@ export class AgentCommandService {
       requiresConfirmation,
       target: request.workflowId ? { workflowId: request.workflowId } : {},
       createdAt: new Date().toISOString(),
+      ...(request.participantId ? { participantId: request.participantId } : {}),
+      ...(request.sessionId ? { sessionId: request.sessionId } : {}),
     });
 
     const eventType = status === 'REJECTED' ? 'agent.command.rejected' : 'agent.command.proposed';
@@ -89,6 +98,8 @@ export class AgentCommandService {
       riskLevel: command.riskLevel,
       requiresConfirmation: command.requiresConfirmation,
       ...(command.target.workflowId ? { workflowId: command.target.workflowId } : {}),
+      ...(command.participantId ? { participantId: command.participantId } : {}),
+      ...(command.sessionId ? { sessionId: command.sessionId } : {}),
       textLength: command.text.length,
       entityKeys: Object.keys(command.entities),
       rawTextPersisted: false,

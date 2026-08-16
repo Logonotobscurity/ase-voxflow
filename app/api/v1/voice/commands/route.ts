@@ -12,7 +12,7 @@ const VoiceCommandRequestSchema = z.object({
 /** Compatibility endpoint for already-transcribed voice input. No media is accepted here. */
 export async function POST(request: NextRequest) {
   try {
-    const context = getRequestContext(request);
+    const context = await getRequestContext(request);
     const input = VoiceCommandRequestSchema.parse(await parseJsonBody(request));
     const platform = getPlatform();
     const proposal = await platform.commands.propose({
