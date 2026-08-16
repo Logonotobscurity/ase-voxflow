@@ -16,7 +16,12 @@ import type {
 export type { AvatarSessionRef } from '../domain/schemas';
 
 export type ExecutionEvidence = {
-  type: 'tool_result' | 'state_change' | 'approval' | 'external_reference';
+  // Audit §8 — the four kinds are now named to make their source
+  // explicit. `internal_trace` is what the in-process handlers and
+  // simulated demo flows produce; `external_reference` is the only
+  // kind that counts as "evidence" in the audit sense — a pointer to
+  // something outside the process that was actually observed.
+  type: 'tool_result' | 'internal_trace' | 'approval' | 'external_reference';
   summary: string;
   reference?: string;
   data?: Record<string, unknown>;

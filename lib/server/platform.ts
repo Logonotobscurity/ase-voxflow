@@ -116,7 +116,7 @@ function createDemoNodeHandlers(): ReadonlyMap<WorkflowNode['type'], WorkflowNod
     return {
       output: { nodeId: node.id, mode: 'demo', inputKeys: Object.keys(input) },
       evidence: [{
-        type: 'state_change',
+        type: 'internal_trace',
         summary: `${node.label} completed in the explicitly ephemeral demo runtime.`,
         data: { nodeId: node.id, simulated: true },
       }],
@@ -144,7 +144,7 @@ function createDemoNodeHandlers(): ReadonlyMap<WorkflowNode['type'], WorkflowNod
         reason: 'No MCP transport is configured in this increment. The contract is wired; wire an adapter to execute.',
       },
       evidence: [{
-        type: 'state_change',
+        type: 'internal_trace',
         summary: `MCP node ${node.id} recorded as a stub. No external call was made.`,
         data: { nodeId: node.id, simulated: true, capability: 'mcp' },
       }],
@@ -162,7 +162,7 @@ function createDemoNodeHandlers(): ReadonlyMap<WorkflowNode['type'], WorkflowNod
     return {
       output: { nodeId: node.id, fromAgentId, toAgentId, recorded: true },
       evidence: [{
-        type: 'state_change',
+        type: 'internal_trace',
         summary: `Handoff recorded at ${node.id}. No side effects were taken; the next execution will pick up ${toAgentId ?? 'unspecified target'}.`,
         data: { nodeId: node.id, fromAgentId, toAgentId, recorded: true },
       }],
