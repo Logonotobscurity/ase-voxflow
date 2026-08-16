@@ -15,7 +15,7 @@ import { actorContext, memoryPorts, workflowFixture } from './helpers';
 
 const passThrough: WorkflowNodeHandler = (node) => ({
   output: { nodeId: node.id },
-  evidence: [{ type: 'state_change', summary: `${node.label} passed.` }],
+  evidence: [{ type: 'internal_trace', summary: `${node.label} passed.` }],
   costMinor: 0,
 });
 
@@ -52,7 +52,7 @@ describe('Capability 06 — MCP node handler is fail-closed and stub-safe', () =
       if (node.configuration.trusted !== true) {
         throw new Error(`MCP node ${node.id} is not trusted.`);
       }
-      return { output: {}, evidence: [{ type: 'state_change', summary: 'ok' }] };
+      return { output: {}, evidence: [{ type: 'internal_trace', summary: 'ok' }] };
     };
     // Bypass the policy gate by going through the handler directly.
     // The handler signature allows sync OR async return; wrap in an
@@ -73,7 +73,7 @@ describe('Capability 12 — Handoff node records an event and never executes dow
       return {
         output: { nodeId: node.id, fromAgentId: input.agentId, toAgentId, recorded: true },
         evidence: [{
-          type: 'state_change',
+          type: 'internal_trace',
           summary: `Handoff recorded at ${node.id}.`,
           data: { nodeId: node.id, toAgentId, recorded: true },
         }],

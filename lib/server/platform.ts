@@ -23,6 +23,13 @@ import {
   BearerTokenIdentityVerifier,
   DemoHeaderIdentityVerifier,
 } from '../infrastructure/identity-verifiers';
+import {
+  DefaultOutboxDispatchConfig,
+  OutboxDispatcher,
+  createNoopOutboxPublisher,
+  type DispatchOutcome,
+  summarizeOutcomes,
+} from '../application/outbox-dispatcher';
 
 export type PlatformApplication = {
   ports: PlatformPorts;
@@ -35,6 +42,19 @@ export type PlatformApplication = {
   mcpServers: import('../application/ports').McpServerRegistry;
   /** Capability 10 — no-op by default. Wire a real provider to enable avatars. */
   avatar: import('../application/ports').AvatarSessionAdapter;
+  /**
+   * Audit §3 — outbox dispatcher wired in memory mode. Postgres mode
+   * wires the real Prisma adapter; production deploys that connect
+   * a broker (NATS or similar) replace the noop publisher at this
+   * composition point.
+   */
+  outboxDispatcher: OutboxDispatcher;
+  /**
+   * Audit §3 — control the in-process dispatcher loop. Tests should
+   * NOT call `start()`; they invoke `tick()` directly.
+   */
+  startOutboxDispatcherLoop: () => void;
+  stopOutboxDispatcherLoop: () => void;
 };
 
 const globalPlatform = globalThis as unknown as { asePlatform?: PlatformApplication };
@@ -86,6 +106,59 @@ export function getPlatform(): PlatformApplication {
     ports.identity = new BearerTokenIdentityVerifier(token);
   }
 
+  // Audit §3 — wire the outbox dispatcher. The default noop publisher
+  // records would-have-been dispatches so an operator can confirm the
+  // pipeline end-to-end; a real broker replaces it without touching
+  // business code.
+  const workerId = process.env.ASE_OUTBOX_WORKER_ID ?? `outbox-worker-${process.pid}`;
+  const leaseMs = Number.parseInt(process.env.ASE_OUTBOX_LEASE_MS ?? '30000', 10);
+  const tickIntervalMs = Number.parseInt(process.env.ASE_OUTBOX_TICK_INTERVAL_MS ?? '1000', 10);
+  const maxAttempts = Number.parseInt(process.env.ASE_OUTBOX_MAX_ATTEMPTS ?? '5', 10);
+  const outboxDispatcher = new OutboxDispatcher(
+    ports.outbox,
+    createNoopOutboxPublisher(),
+    clock,
+    {
+      ...DefaultOutboxDispatchConfig,
+      workerId,
+      leaseMs,
+      maxAttempts,
+    },
+  );
+  let loopTimer: ReturnType<typeof setInterval> | undefined;
+  let loopRunning = false;
+  const runLoop = async () => {
+    if (loopRunning) return;
+    loopRunning = true;
+    try {
+      const outcomes: DispatchOutcome[] = await outboxDispatcher.tick();
+      const summary = summarizeOutcomes(outcomes);
+      if (summary.PUBLISHED > 0 || summary.DEAD_LETTERED > 0) {
+        console.info('[outbox] tick summary', summary);
+      }
+    } catch (error) {
+      console.error('[outbox] tick failed', error);
+    } finally {
+      loopRunning = false;
+    }
+  };
+  const startOutboxDispatcherLoop = () => {
+    if (loopTimer) return;
+    loopTimer = setInterval(() => {
+      void runLoop();
+    }, tickIntervalMs);
+    // Allow the process to exit even if the timer is alive.
+    if (typeof loopTimer === 'object' && loopTimer !== null && 'unref' in loopTimer) {
+      (loopTimer as { unref: () => void }).unref();
+    }
+  };
+  const stopOutboxDispatcherLoop = () => {
+    if (loopTimer) {
+      clearInterval(loopTimer);
+      loopTimer = undefined;
+    }
+  };
+
   const handlers = createDemoNodeHandlers();
   const application: PlatformApplication = {
     ports,
@@ -96,6 +169,9 @@ export function getPlatform(): PlatformApplication {
     persistence,
     mcpServers: new EmptyMcpServerRegistry(),
     avatar: new NoopAvatarSessionAdapter(),
+    outboxDispatcher,
+    startOutboxDispatcherLoop,
+    stopOutboxDispatcherLoop,
   };
   // Memory mode is process-local and ephemeral, but it must still survive across
   // requests handled by the same process (for example, save then execute).

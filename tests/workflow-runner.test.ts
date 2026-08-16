@@ -6,7 +6,7 @@ import { actorContext, memoryPorts, workflowFixture } from './helpers';
 
 const completeHandler: WorkflowNodeHandler = (node) => ({
   output: { nodeId: node.id },
-  evidence: [{ type: 'state_change', summary: `${node.label} completed.` }],
+  evidence: [{ type: 'internal_trace', summary: `${node.label} completed.` }],
   costMinor: 0,
 });
 
