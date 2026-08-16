@@ -283,6 +283,77 @@ describe('Orcflo HTTP routes', () => {
     expect(byNode.get('close')).toBe('SKIPPED');
   });
 
+  it('replays the same run for duplicate API starts with the same idempotency key', async () => {
+    const first = await postRuns(request('/api/v1/orcflo/runs', JSON.stringify({
+      workflowId: 'workflow_orcflo_routes',
+      input: { n: 1 },
+      idempotencyKey: 'idem_route_duplicate_1',
+    })));
+    const firstPayload = await first.json();
+    expect(first.status).toBe(202);
+    expect(firstPayload.data.run.idempotencyKey).toBe('idem_route_duplicate_1');
+
+    const second = await postRuns(request('/api/v1/orcflo/runs', JSON.stringify({
+      workflowId: 'workflow_orcflo_routes',
+      input: { n: 1 },
+      idempotencyKey: 'idem_route_duplicate_1',
+    })));
+    const secondPayload = await second.json();
+    expect(second.status).toBe(202);
+    expect(secondPayload.data.run.id).toBe(firstPayload.data.run.id);
+  });
+
+  it('dedupes duplicate webhook deliveries through the route (body-derived key)', async () => {
+    const created = await postTriggers(request('/api/v1/orcflo/triggers', JSON.stringify({
+      workflowId: 'workflow_orcflo_routes',
+      name: 'Route idem webhook',
+      kind: 'webhook',
+      config: {},
+    })));
+    const key = String((await created.json()).data.trigger.config.key);
+    const params = Promise.resolve({ key });
+
+    const first = await postWebhookFire(
+      request(`/api/v1/orcflo/triggers/webhook/${encodeURIComponent(key)}/fire`, JSON.stringify({ input: { evt: 'dup' } })),
+      { params },
+    );
+    const second = await postWebhookFire(
+      request(`/api/v1/orcflo/triggers/webhook/${encodeURIComponent(key)}/fire`, JSON.stringify({ input: { evt: 'dup' } })),
+      { params },
+    );
+    expect(first.status).toBe(202);
+    expect(second.status).toBe(202);
+    expect((await second.json()).data.run.id).toBe((await first.json()).data.run.id);
+  });
+
+  it('honors an explicit Idempotency-Key header on webhook fire', async () => {
+    const created = await postTriggers(request('/api/v1/orcflo/triggers', JSON.stringify({
+      workflowId: 'workflow_orcflo_routes',
+      name: 'Route header idem',
+      kind: 'webhook',
+      config: {},
+    })));
+    const key = String((await created.json()).data.trigger.config.key);
+    const params = Promise.resolve({ key });
+    const withHeader = (body: string) => new NextRequest(
+      `http://localhost/api/v1/orcflo/triggers/webhook/${encodeURIComponent(key)}/fire`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-ase-tenant-id': 'tenant_orcflo_routes',
+          'x-ase-actor-id': 'actor_route',
+          'x-ase-role': 'BUILDER',
+          'Idempotency-Key': 'idem_header_explicit_1',
+        },
+        body,
+      },
+    );
+    const first = await postWebhookFire(withHeader(JSON.stringify({ input: { a: 1 } })), { params });
+    const second = await postWebhookFire(withHeader(JSON.stringify({ input: { a: 2 } })), { params });
+    expect((await second.json()).data.run.id).toBe((await first.json()).data.run.id);
+  });
+
   it('registers a workflow as a tool, describes it, and soft-unregisters it', async () => {
     const params = Promise.resolve({ workflowId: 'workflow_orcflo_routes' });
     const registered = await postWorkflowTool(request('/api/v1/orcflo/workflows/workflow_orcflo_routes/tool', '{}'), { params });

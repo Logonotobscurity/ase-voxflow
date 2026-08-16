@@ -56,6 +56,13 @@ export type StartRunRequest = {
   triggerId?: string;
   triggerKind?: OrcfloTriggerKind;
   blueprintId?: string;
+  /**
+   * §48 idempotency — a stable key. When provided, a previous run with
+   * the same (tenantId, idempotencyKey) is returned instead of starting
+   * a duplicate; webhook/event triggers derive keys from their payload
+   * so duplicate deliveries dedupe automatically.
+   */
+  idempotencyKey?: string;
   maxDurationMs?: number;
   maxCostMinor?: number;
   /**
@@ -119,6 +126,17 @@ export class OrcfloEngine {
     if (!roleAllows(context.role, 'workflow:execute')) {
       throw new PlatformError('AUTHORIZATION_DENIED', `Role ${context.role} cannot execute workflows.`);
     }
+    // §48 — validate the idempotency key at the request boundary so the
+    // platform error envelope (not a raw Zod error) is returned.
+    if (request.idempotencyKey !== undefined && request.idempotencyKey !== '') {
+      const key = request.idempotencyKey.trim();
+      if (key.length < 8 || key.length > 200) {
+        throw new PlatformError(
+          'VALIDATION_ERROR',
+          'idempotencyKey must be between 8 and 200 characters.',
+        );
+      }
+    }
     const stored = await this.ports.workflows.findById(context.tenantId, request.workflowId);
     if (!stored) throw new PlatformError('NOT_FOUND', `Workflow ${request.workflowId} was not found.`);
     // Normalize through the canonical contract so node defaults (retry
@@ -129,6 +147,23 @@ export class OrcfloEngine {
       throw new PlatformError('CONFLICT', `Workflow ${workflow.id} must be READY before a run can start.`);
     }
     validateWorkflowGraph(workflow);
+
+    // §48 idempotency — a previous run with the same tenant + key is
+    // replayed as-is (historical runs are immutable; the new input is
+    // deliberately ignored). A key reused for a different workflow is
+    // a caller error.
+    if (request.idempotencyKey !== undefined && request.idempotencyKey !== '') {
+      const existing = await this.ports.runs.findByIdempotencyKey(context.tenantId, request.idempotencyKey);
+      if (existing) {
+        if (existing.workflowId !== workflow.id) {
+          throw new PlatformError(
+            'CONFLICT',
+            `Idempotency key ${request.idempotencyKey} is already associated with a different workflow.`,
+          );
+        }
+        return existing;
+      }
+    }
     const maxDurationMs = Math.min(request.maxDurationMs ?? 30_000, 120_000);
     const maxCostMinor = Math.min(request.maxCostMinor ?? 100_000, 100_000_000);
     const startedMs = this.clock.now();
@@ -145,11 +180,22 @@ export class OrcfloEngine {
       input: request.input ?? {},
       steps: [],
       correlationId: context.correlationId,
+      idempotencyKey: request.idempotencyKey === '' ? undefined : request.idempotencyKey,
       startedAt,
       createdAt: startedAt,
       updatedAt: startedAt,
     });
-    await this.ports.runs.save(run);
+    try {
+      await this.ports.runs.save(run);
+    } catch (error) {
+      // §48 — a concurrent request won the race with the same key.
+      // Replay the winner instead of failing.
+      if (request.idempotencyKey) {
+        const winner = await this.ports.runs.findByIdempotencyKey(context.tenantId, request.idempotencyKey);
+        if (winner) return winner;
+      }
+      throw error;
+    }
     let sequence = 1;
     await this.emit(run, 'run.started', { workflowId: workflow.id, workflowVersion: workflow.version }, sequence);
     await this.meter(context, { metric: 'run.count', unit: 'count', amount: 1, run, workflow });

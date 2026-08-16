@@ -77,6 +77,15 @@ export const OrcfloRunSchema = z.object({
   output: z.unknown().optional(),
   steps: z.array(OrcfloStepResultSchema),
   correlationId: IdSchema,
+  /**
+   * §48 idempotency — a stable client/derived key. When provided,
+   * starting a run with the same (tenantId, idempotencyKey) replays the
+   * existing run instead of creating a duplicate; the database enforces
+   * uniqueness (partial unique index). Webhook and event triggers
+   * derive keys from (trigger, payload) so duplicate deliveries dedupe
+   * automatically.
+   */
+  idempotencyKey: z.string().trim().min(8).max(200).optional(),
   startedAt: DateTimeSchema.optional(),
   completedAt: DateTimeSchema.optional(),
   createdAt: DateTimeSchema,

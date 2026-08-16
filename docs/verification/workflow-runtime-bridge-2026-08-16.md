@@ -6,6 +6,8 @@
 
 **Follow-up increment (same day): parallel execution (§47).** Independent handler nodes run concurrently up to a bounded `maxConcurrency` with deterministic step/event ordering; control nodes remain sequential. Detailed evidence in `docs/verification/orcflo-engine-2026-08-16.md` §12.
 
+**Follow-up increment (same day): run idempotency (§48).** `OrcfloRun.idempotencyKey` unique per tenant; engine replays duplicate-key starts; webhook/event triggers derive keys from (trigger, payload) so duplicate deliveries dedupe; explicit key via header/body. Detailed evidence in `docs/verification/orcflo-engine-2026-08-16.md` §13.
+
 ## 1. What this increment adds
 
 | Piece | Location | Behavior verified |
@@ -104,7 +106,7 @@ Legend: ✅ implemented in this or the prior Orcflo increment · 🟡 partial (c
 | 45 | Graph validation incl. cycles vs bounded loops | ✅ | `validateWorkflowGraph` accepts cycles ONLY as bounded loops: `loop` edges must target `for_each` heads, heads need a `loopExit` edge, nested loops rejected, router edges validated against declared routes; accidental infinite cycles still rejected. Added 2026-08-16 control-flow increment. |
 | 46 | Engine pipeline LOAD→VALIDATE→CREATE RUN→…→FINAL OUTPUT | ✅ | `OrcfloEngine.startRun` implements this sequence. |
 | 47 | Concurrency for independent nodes with limits | ✅ | Wave-based parallel execution: handler nodes ready at the same moment run concurrently up to `maxConcurrency` (default 4, clamp [1, 32], per-run); control nodes sequential; dedupe so merged nodes run once; deterministic topological step/event ordering; node-execution/cost/deadline caps enforced. Added 2026-08-16 parallel increment. |
-| 48 | Idempotency (webhooks, payments, email, schedules) | ⬜ | Future. |
+| 48 | Idempotency (webhooks, payments, email, schedules) | ✅ | `OrcfloRun.idempotencyKey` unique per tenant (partial-safe unique index); engine replays prior runs for duplicate keys (immutable history; cross-workflow reuse = `CONFLICT`; race-safe re-fetch); webhook/event triggers derive keys from (trigger, payload) so duplicate deliveries dedupe; explicit key via header `Idempotency-Key`/body; schedule drain already once-per-minute-bucket. Added 2026-08-16 idempotency increment. |
 | 49 | Human-in-the-loop node, persistable + resumable | 🟡 | `human_approval` node → `WAITING_APPROVAL` persisted; resumption: future. Agent-node `WAITING_APPROVAL` fails the run today. |
 | 50 | Agent ⇄ Workflow interop with correlation/parent/depth/timeout/budget | ✅ | This increment: correlation preserved, parent execution id, depth limit, timeout (tool timeoutMs), budget (run + agent budgets). |
 | 51 | Workflow-as-Tool, schema becomes tool schema | ✅ | This increment; input schema derived from `metadata.inputSchema` or generic object. |

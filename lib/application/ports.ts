@@ -327,6 +327,12 @@ export type ExtendedPlatformPorts = PlatformPorts & PlatformExtensionPorts;
 
 export interface OrcfloRunRepository {
   findById(tenantId: string, id: string): Promise<OrcfloRun | null>;
+  /**
+   * §48 idempotency — find the run previously created for this tenant
+   * with the same idempotency key, so duplicate triggers/retries replay
+   * the existing run instead of creating a duplicate.
+   */
+  findByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<OrcfloRun | null>;
   save(run: OrcfloRun): Promise<void>;
   list(tenantId: string, options?: { workflowId?: string; limit?: number }): Promise<OrcfloRun[]>;
   listByTrigger(tenantId: string, triggerId: string, limit?: number): Promise<OrcfloRun[]>;

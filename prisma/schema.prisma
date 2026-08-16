@@ -354,6 +354,9 @@ model OrcfloRun {
   output        Json?
   stepResults   Json
   correlationId String
+  // §48 idempotency — client/derived key; unique per tenant. NULL rows
+  // (runs started without a key) are exempt via the partial unique index.
+  idempotencyKey String?
   startedAt     DateTime?
   completedAt   DateTime?
   createdAt     DateTime @default(now())
@@ -362,6 +365,7 @@ model OrcfloRun {
   workflow      Workflow @relation(fields: [workflowId], references: [id], onDelete: Restrict)
   events        OrcfloRunEvent[]
 
+  @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status])
   @@index([tenantId, workflowId, createdAt])
   @@index([tenantId, triggerId, createdAt])

@@ -487,8 +487,25 @@ export class InMemoryOrcfloRunRepository implements OrcfloRunRepository {
     const value = this.store.state.orcfloRuns.get(id);
     return value?.tenantId === tenantId ? copy(value) : null;
   }
+  async findByIdempotencyKey(tenantId: string, idempotencyKey: string) {
+    const value = [...this.store.state.orcfloRuns.values()]
+      .find((run) => run.tenantId === tenantId && run.idempotencyKey === idempotencyKey);
+    return value ? copy(value) : null;
+  }
   async save(value: OrcfloRun) {
     assertTenantOwnership(this.store.state.orcfloRuns.get(value.id), value);
+    // §48 — the unique (tenantId, idempotencyKey) invariant, mirroring
+    // the partial unique index in the Prisma adapter.
+    if (value.idempotencyKey !== undefined) {
+      const collision = [...this.store.state.orcfloRuns.values()].find((run) => (
+        run.id !== value.id
+        && run.tenantId === value.tenantId
+        && run.idempotencyKey === value.idempotencyKey
+      ));
+      if (collision) {
+        throw new PlatformError('CONFLICT', 'A run already exists for this idempotency key.');
+      }
+    }
     this.store.state.orcfloRuns.set(value.id, copy(value));
   }
   async list(tenantId: string, options: { workflowId?: string; limit?: number } = {}) {

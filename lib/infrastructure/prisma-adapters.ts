@@ -517,6 +517,10 @@ export class PrismaOrcfloRunRepository implements OrcfloRunRepository {
     });
     return rows.map(mapOrcfloRun);
   }
+  async findByIdempotencyKey(tenantId: string, idempotencyKey: string) {
+    const row = await this.prisma.orcfloRun.findFirst({ where: { tenantId, idempotencyKey } });
+    return row ? mapOrcfloRun(row) : null;
+  }
   async save(value: OrcfloRun) {
     const data = {
       tenantId: value.tenantId,
@@ -529,6 +533,7 @@ export class PrismaOrcfloRunRepository implements OrcfloRunRepository {
       output: value.output === undefined ? undefined : json(value.output),
       stepResults: json(value.steps),
       correlationId: value.correlationId,
+      idempotencyKey: value.idempotencyKey,
       startedAt: value.startedAt,
       completedAt: value.completedAt,
       createdAt: value.createdAt,
@@ -536,8 +541,17 @@ export class PrismaOrcfloRunRepository implements OrcfloRunRepository {
     };
     const owner = await this.prisma.orcfloRun.findUnique({ where: { id: value.id }, select: { tenantId: true } });
     assertTenantOwnership(owner?.tenantId, value.tenantId);
-    const updated = await this.prisma.orcfloRun.updateMany({ where: { id: value.id, tenantId: value.tenantId }, data });
-    if (updated.count === 0) await this.prisma.orcfloRun.create({ data: { id: value.id, ...data } });
+    try {
+      const updated = await this.prisma.orcfloRun.updateMany({ where: { id: value.id, tenantId: value.tenantId }, data });
+      if (updated.count === 0) await this.prisma.orcfloRun.create({ data: { id: value.id, ...data } });
+    } catch (error) {
+      // §48 — the partial unique index on (tenantId, idempotencyKey) is
+      // the ultimate race guard; surface it as the platform conflict.
+      if (isUniqueViolation(error, 'idempotencyKey')) {
+        throw new PlatformError('CONFLICT', 'A run already exists for this idempotency key.');
+      }
+      throw error;
+    }
   }
 }
 
@@ -775,6 +789,18 @@ function isRetryableTransactionConflict(error: unknown): boolean {
     ? String(error.code)
     : undefined;
   return code === 'P2034' || code === 'P2002';
+}
+
+/** True when the error is a P2002 unique violation touching `column`. */
+function isUniqueViolation(error: unknown, column: string): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const code = 'code' in error ? String(error.code) : undefined;
+  if (code !== 'P2002') return false;
+  const meta = 'meta' in error && error.meta !== null && typeof error.meta === 'object'
+    ? (error.meta as Record<string, unknown>)
+    : {};
+  const target = String(meta.target ?? '');
+  return target.includes(column);
 }
 
 function mapAgent(row: Record<string, unknown>): Agent {

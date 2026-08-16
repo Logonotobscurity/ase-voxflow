@@ -1,6 +1,7 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { PlatformError } from '../domain/errors';
 import { createId } from '../domain/events';
+import { stableStringify } from '../domain/stable-json';
 import { isDueCron, parseCronExpression, parseTimezoneOffsetMinutes } from '../domain/cron';
 import {
   EventTriggerConfigSchema,
@@ -95,17 +96,35 @@ export class OrcfloTriggerService {
   }
 
   /** Fire a `manual` trigger by id. */
-  async fireManual(context: ActorContext, triggerId: string, input?: Record<string, unknown>): Promise<OrcfloRun> {
+  async fireManual(
+    context: ActorContext,
+    triggerId: string,
+    input?: Record<string, unknown>,
+    idempotencyKey?: string,
+  ): Promise<OrcfloRun> {
     this.assertFireRole(context);
     const trigger = await this.requireEnabled(context, triggerId);
     if (trigger.kind !== 'manual') {
       throw new PlatformError('CONFLICT', `Trigger ${triggerId} is a ${trigger.kind} trigger; use the matching fire path.`);
     }
-    return this.fire(trigger, input, context);
+    return this.fire(trigger, input, context, undefined, idempotencyKey);
   }
 
-  /** Fire a `webhook` trigger by its secret key. */
-  async fireWebhook(context: ActorContext, key: string, input?: Record<string, unknown>): Promise<OrcfloRun> {
+  /**
+   * Fire a `webhook` trigger by its secret key (§48 idempotency).
+   *
+   * A caller-supplied key (header `Idempotency-Key` or body
+   * `idempotencyKey`) wins; otherwise a key is derived from
+   * (trigger, payload), so a duplicate delivery with an identical body
+   * replays the same run instead of creating duplicate side effects,
+   * while a genuinely different payload still creates a new run.
+   */
+  async fireWebhook(
+    context: ActorContext,
+    key: string,
+    input?: Record<string, unknown>,
+    options: { idempotencyKey?: string } = {},
+  ): Promise<OrcfloRun> {
     this.assertFireRole(context);
     const candidates = await this.ports.triggers.list(context.tenantId, { kind: 'webhook', enabledOnly: true });
     const trigger = candidates.find((candidate) => candidate.kind === 'webhook' && candidate.config.key === key);
@@ -114,7 +133,10 @@ export class OrcfloTriggerService {
       // and a wrong key must not leak whether a trigger exists.
       throw new PlatformError('NOT_FOUND', 'No webhook trigger matches the provided key.');
     }
-    return this.fire(trigger, input, context);
+    const idempotencyKey = options.idempotencyKey && options.idempotencyKey !== ''
+      ? options.idempotencyKey
+      : this.derivedKey('whk', trigger.id, input ?? {});
+    return this.fire(trigger, input, context, undefined, idempotencyKey);
   }
 
   /** Materialize runs for every schedule trigger due at `nowIso` (default: wall clock). */
@@ -133,15 +155,28 @@ export class OrcfloTriggerService {
     return runs;
   }
 
-  /** Materialize runs for every enabled `event` trigger matching `eventType`. */
-  async fireEventTrigger(context: ActorContext, eventType: string, input?: Record<string, unknown>): Promise<OrcfloRun[]> {
+  /**
+   * Materialize runs for every enabled `event` trigger matching
+   * `eventType` (§48 idempotency). A caller-supplied key wins; otherwise
+   * each run derives a key from (trigger, eventType, payload) so a
+   * duplicate event fire replays instead of duplicating.
+   */
+  async fireEventTrigger(
+    context: ActorContext,
+    eventType: string,
+    input?: Record<string, unknown>,
+    options: { idempotencyKey?: string } = {},
+  ): Promise<OrcfloRun[]> {
     this.assertFireRole(context);
     const triggers = await this.ports.triggers.list(context.tenantId, { kind: 'event', enabledOnly: true });
     const runs: OrcfloRun[] = [];
     for (const trigger of triggers) {
       const config = EventTriggerConfigSchema.parse(trigger.config);
       if (config.eventType !== eventType) continue;
-      runs.push(await this.fire(trigger, input ?? { eventType }, context));
+      const idempotencyKey = options.idempotencyKey && options.idempotencyKey !== ''
+        ? options.idempotencyKey
+        : this.derivedKey('evt', trigger.id, { ...(input ?? {}), eventType });
+      runs.push(await this.fire(trigger, input ?? { eventType }, context, undefined, idempotencyKey));
     }
     return runs;
   }
@@ -210,6 +245,7 @@ export class OrcfloTriggerService {
     input: Record<string, unknown> | undefined,
     context: ActorContext,
     firedAtIso = this.clock.isoNow(),
+    idempotencyKey?: string,
   ): Promise<OrcfloRun> {
     const run = await this.engine.startRun({
       workflowId: trigger.workflowId,
@@ -217,9 +253,19 @@ export class OrcfloTriggerService {
       context,
       triggerId: trigger.id,
       triggerKind: trigger.kind,
+      idempotencyKey,
     });
     const updated = OrcfloTriggerSchema.parse({ ...trigger, lastFiredAt: firedAtIso, updatedAt: firedAtIso });
     await this.ports.triggers.save(updated);
     return run;
+  }
+
+  /** §48 — deterministic derived key for duplicate-delivery dedupe. */
+  private derivedKey(prefix: 'whk' | 'evt', triggerId: string, payload: unknown): string {
+    const digest = createHash('sha256')
+      .update(`${triggerId}\n${stableStringify(payload ?? {})}`)
+      .digest('hex')
+      .slice(0, 40);
+    return `${prefix}_${digest}`;
   }
 }
