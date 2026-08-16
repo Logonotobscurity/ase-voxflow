@@ -7,6 +7,13 @@
   DEVELOPMENT_SPEC.md          -> WHAT we are building
   CODE_AGENT_MASTER_PROMPT.md  -> HOW the coding agent is allowed to build it
   ARCHITECTURE_DECISIONS.md    -> WHY particular technical decisions were made
+  WORKFLOW-ENGINE-DIRECTIVE.md -> Workflow runtime target (56 sections)
+  AGENT_RUNTIME_SPEC.md        -> Agent runtime target (autonomous decision-makers)
+  TOOL_AND_MCP_SPEC.md         -> Tool/MCP capability layer target (the "hands")
+  VOICE_VISION_SPEC.md         -> Voice/vision multimodal interface target
+  EXECUTION_KERNEL_SPEC.md     -> PENDING — referenced by every spec's "Depends On";
+                                  not yet provided; the existing Orcflo engine and
+                                  docs/verification/ are the current kernel evidence
 ```
 
 ---
@@ -39,7 +46,35 @@
 
 ## 3. What we are building (target)
 
-The full engineering target is the **WORKFLOW ENGINE & VISUAL AUTOMATION DIRECTIVE** (`docs/WORKFLOW-ENGINE-DIRECTIVE.md`, 56 sections) — the development-spec addition. Its compliance map lives in `docs/verification/workflow-runtime-bridge-2026-08-16.md` with ✅/🟡/⬜ status per section. Current status highlights:
+The engineering target is organized as one directive plus three runtime-domain specifications, all converging on the canonical Execution Kernel (the Orcflo engine today):
+
+```text
+                    VOXFLOW
+                       │
+          ┌────────────┼────────────┐
+          │            │            │
+       AGENTS      WORKFLOWS      TOOLS
+       Reason      Orchestrate     Act
+          │            │            │
+          └────────────┼────────────┘
+                       │
+                EXECUTION KERNEL
+                       │
+          ┌────────────┼────────────┐
+          │            │            │
+       POLICY         EVENTS      STATE
+          │            │            │
+          └────────────┼────────────┘
+                       │
+                  EXTERNAL WORLD
+```
+
+- **Workflows** (`docs/WORKFLOW-ENGINE-DIRECTIVE.md`, 56 sections) — the workflow runtime target; compliance map in `docs/verification/workflow-runtime-bridge-2026-08-16.md`.
+- **Agents** (`docs/AGENT_RUNTIME_SPEC.md`) — bounded autonomous decision-makers: goals vs instructions vs constraints vs success criteria, autonomy levels, planner/action proposals, tool selection through the registry, memory divided by purpose, structured handoffs, failure classification/recovery, and termination guarantees. Agents reason; the kernel governs.
+- **Tools & MCP** (`docs/TOOL_AND_MCP_SPEC.md`) — the canonical capability layer: one tool abstraction across agents/workflows/voice/vision, validated inputs/outputs, risk + permissions, provider adapters, SmartProxy-style HTTP infrastructure (protected fetch, batch, pooling, rate limits, circuit breaking, error normalization) as infrastructure rather than a second architecture, MCP through the tool registry with trust classification, dynamic tool creation through the same governance, and transactions as a stronger-than-tools abstraction.
+- **Voice & Vision** (`docs/VOICE_VISION_SPEC.md`) — multimodal interfaces into the same kernel: Pipecat as the canonical voice framework (local Whisper STT adapter, deterministic voice command processor, participant-scoped transcription, barge-in, background audio), provider-agnostic TTS with the provider explicitly unresolved (Coqui XTTS prohibited), vision as structured perception (camera/screen/OCR/document), LiveKit as transport only where adopted, and privacy/retention/licensing controls.
+
+The current-state compliance snapshot per section lives in the verification docs; the reference implementation of the kernel is the Orcflo engine (ADR-002).
 
 - ✅ Implemented: canonical workflow model + graph validation; node executor registry; runs/history/stream; deterministic conditions, routers, bounded loops; parallel execution; run idempotency; blueprints; workflow-as-tool and agent-as-node; the four original triggers plus public interfaces; tool approval (risk levels); versioned runs pinned to definitions; analytics derived from metering/events.
 - 🟡 Partial: standardized expression syntax across all node configs (§6), full run-state aliases (`PAUSED`/`TIMED_OUT`), real-time long-poll subscription behind a worker, durable scheduling with `next_run`/`failure_policy`, soft-delete lifecycle, canvas UI actions for the Orcflo surface, natural-language workflow generation.
@@ -57,5 +92,10 @@ The full engineering target is the **WORKFLOW ENGINE & VISUAL AUTOMATION DIRECTI
 - `README.md` — run instructions, route map, architecture decisions in brief.
 - `docs/ARCHITECTURE.md` — detailed architecture, decision log (§5), boundaries, verification records.
 - `docs/WORKFLOW-ENGINE-DIRECTIVE.md` — the 56-section engineering directive (development-spec addition).
+- `docs/AGENT_RUNTIME_SPEC.md` — agent runtime specification v1.0 (bounded autonomous decision-makers).
+- `docs/TOOL_AND_MCP_SPEC.md` — tool & MCP specification v1.0 (canonical capability layer).
+- `docs/VOICE_VISION_SPEC.md` — voice & vision specification v1.0 (multimodal interfaces).
 - `docs/ARCHITECTURE_DECISIONS.md` — canonical ADR register.
+- `docs/CODE_AGENT_MASTER_PROMPT.md` — engineering control prompt for the coding agent.
 - `docs/verification/` — dated verification evidence (PostgreSQL, capability, Orcflo engine, workflow-runtime bridge).
+- `EXECUTION_KERNEL_SPEC.md` — pending (referenced by every spec's `Depends On`; not yet provided).
