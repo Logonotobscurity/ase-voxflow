@@ -65,6 +65,15 @@ export type StartRunRequest = {
    * reason (§40 of the workflow directive).
    */
   maxNodeExecutions?: number;
+  /**
+   * §47 — concurrency. Independent (ready-at-the-same-time) handler
+   * nodes execute concurrently up to this limit. Default 4, clamped to
+   * [1, 32]. Control nodes (for_each/condition/router) always run
+   * sequentially and step/event ordering stays deterministic
+   * (topological order within each wave), so parallel execution never
+   * changes the observable run.
+   */
+  maxConcurrency?: number;
 };
 
 /**
@@ -184,211 +193,310 @@ export class OrcfloEngine {
         iteration: number;
         loopItem?: { item: unknown; index: number; iteration: number };
       };
+      const keyOf = (act: Activation): string => `${act.nodeId}::${act.iteration}`;
       const pending: Activation[] = entryOrder.map((nodeId) => ({ nodeId, iteration: 0 }));
       const executedKeys = new Set<string>();
       const executedNodeIds = new Set<string>();
       const loopState = new Map<string, { items: unknown[]; index: number; iteration: number }>();
       const maxNodeExecutions = Math.max(1, Math.min(Math.trunc(request.maxNodeExecutions ?? 1000), 10_000));
+      const maxConcurrency = Math.max(1, Math.min(Math.trunc(request.maxConcurrency ?? 4), 32));
+      const topoIndex = new Map(topo.map((node, index) => [node.id, index]));
+      const isControlType = (type: WorkflowNode['type']): boolean =>
+        type === 'for_each' || type === 'condition' || type === 'router';
       let nodeExecutions = 0;
 
+      // Wave loop (§47): each wave is the set of activations ready at the
+      // same moment (deduped). Control nodes run sequentially (they mutate
+      // loop/run state); handler nodes run concurrently up to maxConcurrency.
+      // Every node in a wave sees the same base context (run input + all
+      // prior waves' outputs), and step/event ordering is deterministic
+      // (topological order within the wave), so parallel execution never
+      // changes the observable run.
       while (pending.length > 0) {
-        const activation = pending.shift()!;
-        const key = `${activation.nodeId}::${activation.iteration}`;
-        if (executedKeys.has(key)) continue;
-        const node = nodeById.get(activation.nodeId)!;
-        this.assertDeadline(startedMs, maxDurationMs);
-        nodeExecutions += 1;
-        if (nodeExecutions > maxNodeExecutions) {
-          throw new PlatformError(
-            'WORKFLOW_ERROR',
-            `Run exceeded its node execution cap (${maxNodeExecutions}).`,
-          );
+        // 1. Snapshot the current wave.
+        const wave: Activation[] = [];
+        const waveSeen = new Set<string>();
+        while (pending.length > 0) {
+          const act = pending.shift()!;
+          const key = keyOf(act);
+          if (executedKeys.has(key) || waveSeen.has(key)) continue;
+          waveSeen.add(key);
+          wave.push(act);
         }
+        wave.sort((a, b) => (topoIndex.get(a.nodeId) ?? 0) - (topoIndex.get(b.nodeId) ?? 0));
+        const waveBaseInputs = { ...run.input, ...outputs };
+        const nextPending: Activation[] = [];
 
-        const decision = evaluateWorkflowNodePolicy(node, context);
-        if (decision.outcome === 'deny') {
-          throw new PlatformError('AUTHORIZATION_DENIED', decision.reason);
-        }
-        if (decision.outcome === 'require_approval') {
-          const step = this.stepResult(node.id, 'WAITING_APPROVAL', { reason: decision.reason });
-          run = await this.updateRun(run, { status: 'WAITING_APPROVAL', steps: [...run.steps, step] });
-          await this.emit(run, 'step.started', { nodeId: node.id, nodeType: node.type, reason: decision.reason }, ++sequence);
-          await this.publishDomainEvent('orcflo.run.approval_requested', run, workflow, {
+        // 2. Control nodes (for_each / condition / router) — sequential.
+        for (const act of wave) {
+          const node = nodeById.get(act.nodeId)!;
+          if (!isControlType(node.type)) continue;
+          this.assertDeadline(startedMs, maxDurationMs);
+          nodeExecutions += 1;
+          if (nodeExecutions > maxNodeExecutions) {
+            throw new PlatformError('WORKFLOW_ERROR', `Run exceeded its node execution cap (${maxNodeExecutions}).`);
+          }
+          const decision = evaluateWorkflowNodePolicy(node, context);
+          if (decision.outcome === 'deny') {
+            throw new PlatformError('AUTHORIZATION_DENIED', decision.reason);
+          }
+          const stepInput = { ...waveBaseInputs };
+          if (act.loopItem) {
+            stepInput.item = act.loopItem.item;
+            stepInput.index = act.loopItem.index;
+            stepInput.iteration = act.loopItem.iteration;
+          }
+          const stepStartedAt = this.clock.isoNow();
+          inFlightNodeId = node.id;
+          await this.emit(run, 'step.started', { nodeId: node.id, nodeType: node.type }, ++sequence);
+
+          let step: OrcfloStepResult;
+          let nodeOutput: unknown;
+          let firedEdges: WorkflowEdge[] = [];
+          let loopItem: Activation['loopItem'];
+
+          if (node.type === 'for_each') {
+            // Bounded loop head (§14). Visits alternate: emit one item and
+            // fire the body edges, or (done) fire the loopExit edges.
+            const maxItems = this.clampInt(node.configuration.maxItems, 1, 10_000, 100);
+            const maxIterations = this.clampInt(node.configuration.maxIterations, 1, 10_000, 100);
+            let state = loopState.get(node.id);
+            if (!state) {
+              const items = resolveCollection(stepInput, String(node.configuration.collection ?? ''));
+              if (items.length > maxItems) {
+                throw new PlatformError(
+                  'WORKFLOW_ERROR',
+                  `for_each node ${node.id} exceeded its item limit: ${items.length} items, maxItems ${maxItems}.`,
+                );
+              }
+              state = { items, index: 0, iteration: 0 };
+              loopState.set(node.id, state);
+            }
+            const done = state.index >= state.items.length || state.iteration >= maxIterations;
+            if (done) {
+              if (state.index < state.items.length) {
+                throw new PlatformError(
+                  'WORKFLOW_ERROR',
+                  `for_each node ${node.id} reached its iteration limit (${maxIterations}) with items remaining; the loop could not terminate.`,
+                );
+              }
+              nodeOutput = { done: true, count: state.items.length, processed: state.index, iterations: state.iteration };
+              firedEdges = (outgoing.get(node.id) ?? []).filter((edge) => edge.loopExit === true);
+              loopState.delete(node.id);
+            } else {
+              const item = state.items[state.index];
+              const iteration = state.iteration;
+              state.index += 1;
+              state.iteration += 1;
+              nodeOutput = { item, index: iteration, iteration, done: false, count: state.items.length };
+              firedEdges = (outgoing.get(node.id) ?? []).filter((edge) => edge.loop !== true && edge.loopExit !== true);
+              loopItem = { item, index: iteration, iteration };
+            }
+            step = this.stepResult(node.id, 'COMPLETED', nodeOutput, stepStartedAt);
+            evidence.push({
+              type: 'internal_trace',
+              summary: `for_each node ${node.id} emitted ${String((nodeOutput as Record<string, unknown>).done)} at iteration ${String((nodeOutput as Record<string, unknown>).iteration ?? 'final')}.`,
+              data: { nodeId: node.id, done: (nodeOutput as Record<string, unknown>).done },
+            });
+          } else if (node.type === 'condition') {
+            // Deterministic condition (§12) — code, never an LLM.
+            const output = evaluateCondition(node.configuration, stepInput);
+            nodeOutput = output;
+            firedEdges = (outgoing.get(node.id) ?? []).filter(
+              (edge) => edge.loop === true || edgeGuardFires(edge, output),
+            );
+            step = this.stepResult(node.id, 'COMPLETED', output, stepStartedAt);
+            evidence.push({
+              type: 'internal_trace',
+              summary: `condition node ${node.id} evaluated ${String(node.configuration.path)} -> ${String(output.result)}.`,
+              data: { nodeId: node.id, path: node.configuration.path, result: output.result },
+            });
+          } else {
+            // Router (§13) — structured, deterministic branch selection.
+            const output = selectRoute(node.configuration, stepInput);
+            nodeOutput = output;
+            firedEdges = (outgoing.get(node.id) ?? []).filter((edge) => edge.sourceHandle === output.route);
+            if (firedEdges.length === 0 && (outgoing.get(node.id) ?? []).length > 0) {
+              throw new PlatformError(
+                'WORKFLOW_ERROR',
+                `Router node ${node.id} selected route "${output.route}" but no outgoing edge carries that sourceHandle.`,
+              );
+            }
+            step = this.stepResult(node.id, 'COMPLETED', output, stepStartedAt);
+            evidence.push({
+              type: 'internal_trace',
+              summary: `router node ${node.id} selected route ${output.route}.`,
+              data: { nodeId: node.id, route: output.route },
+            });
+          }
+
+          run = await this.updateRun(run, { steps: [...run.steps, step] });
+          await this.emit(run, 'step.completed', {
             nodeId: node.id,
             nodeType: node.type,
-            reason: decision.reason,
-          }, context);
-          return run;
+            costMinor: 0,
+            evidenceCount: step.evidenceCount,
+          }, ++sequence);
+          await this.meter(context, { metric: 'step.count', unit: 'count', amount: 1, run, workflow, nodeId: node.id });
+
+          executedKeys.add(keyOf(act));
+          executedNodeIds.add(node.id);
+          outputs[node.id] = nodeOutput;
+          inFlightNodeId = undefined;
+          this.enqueueFiredEdges(nextPending, firedEdges, act, loopItem);
         }
 
-        const stepInput = { ...run.input, ...outputs };
-        if (activation.loopItem) {
-          // Loop body nodes consume the current item through input.item /
-          // input.index / input.iteration (deterministic, no templating DSL).
-          stepInput.item = activation.loopItem.item;
-          stepInput.index = activation.loopItem.index;
-          stepInput.iteration = activation.loopItem.iteration;
+        // 3. Handler nodes (trigger, action, tool, ai_model, agent, mcp, ...).
+        const handlerActs = wave.filter((act) => !isControlType(nodeById.get(act.nodeId)!.type));
+        if (handlerActs.length === 0) {
+          pending.push(...nextPending);
+          continue;
         }
-        const stepStartedAt = this.clock.isoNow();
-        inFlightNodeId = node.id;
-        await this.emit(run, 'step.started', { nodeId: node.id, nodeType: node.type }, ++sequence);
 
-        let step: OrcfloStepResult;
-        let nodeOutput: unknown;
-        let firedEdges: WorkflowEdge[] = [];
-        let loopItem: Activation['loopItem'];
-
-        if (node.type === 'for_each') {
-          // Bounded loop head (§14). Visits alternate: emit one item and
-          // fire the body edges, or (done) fire the loopExit edges.
-          const maxItems = this.clampInt(node.configuration.maxItems, 1, 10_000, 100);
-          const maxIterations = this.clampInt(node.configuration.maxIterations, 1, 10_000, 100);
-          let state = loopState.get(node.id);
-          if (!state) {
-            const items = resolveCollection(stepInput, String(node.configuration.collection ?? ''));
-            if (items.length > maxItems) {
-              throw new PlatformError(
-                'WORKFLOW_ERROR',
-                `for_each node ${node.id} exceeded its item limit: ${items.length} items, maxItems ${maxItems}.`,
-              );
-            }
-            state = { items, index: 0, iteration: 0 };
-            loopState.set(node.id, state);
+        // 3a. Policy pre-checks (deny -> fail; approval -> pause) — sequential.
+        for (const act of handlerActs) {
+          const node = nodeById.get(act.nodeId)!;
+          const decision = evaluateWorkflowNodePolicy(node, context);
+          if (decision.outcome === 'deny') {
+            throw new PlatformError('AUTHORIZATION_DENIED', decision.reason);
           }
-          const done = state.index >= state.items.length || state.iteration >= maxIterations;
-          if (done) {
-            if (state.index < state.items.length) {
-              throw new PlatformError(
-                'WORKFLOW_ERROR',
-                `for_each node ${node.id} reached its iteration limit (${maxIterations}) with items remaining; the loop could not terminate.`,
-              );
-            }
-            nodeOutput = { done: true, count: state.items.length, processed: state.index, iterations: state.iteration };
-            firedEdges = (outgoing.get(node.id) ?? []).filter((edge) => edge.loopExit === true);
-            loopState.delete(node.id);
-          } else {
-            const item = state.items[state.index];
-            const iteration = state.iteration;
-            state.index += 1;
-            state.iteration += 1;
-            nodeOutput = { item, index: iteration, iteration, done: false, count: state.items.length };
-            firedEdges = (outgoing.get(node.id) ?? []).filter((edge) => edge.loop !== true && edge.loopExit !== true);
-            loopItem = { item, index: iteration, iteration };
-          }
-          step = this.stepResult(node.id, 'COMPLETED', nodeOutput, stepStartedAt);
-          evidence.push({
-            type: 'internal_trace',
-            summary: `for_each node ${node.id} emitted ${String((nodeOutput as Record<string, unknown>).done)} at iteration ${String((nodeOutput as Record<string, unknown>).iteration ?? 'final')}.`,
-            data: { nodeId: node.id, done: (nodeOutput as Record<string, unknown>).done },
-          });
-        } else if (node.type === 'condition') {
-          // Deterministic condition (§12) — code, never an LLM.
-          const output = evaluateCondition(node.configuration, stepInput);
-          nodeOutput = output;
-          firedEdges = (outgoing.get(node.id) ?? []).filter(
-            (edge) => edge.loop === true || edgeGuardFires(edge, output),
-          );
-          step = this.stepResult(node.id, 'COMPLETED', output, stepStartedAt);
-          evidence.push({
-            type: 'internal_trace',
-            summary: `condition node ${node.id} evaluated ${String(node.configuration.path)} -> ${String(output.result)}.`,
-            data: { nodeId: node.id, path: node.configuration.path, result: output.result },
-          });
-        } else if (node.type === 'router') {
-          // Router (§13) — structured, deterministic branch selection.
-          const output = selectRoute(node.configuration, stepInput);
-          nodeOutput = output;
-          firedEdges = (outgoing.get(node.id) ?? []).filter((edge) => edge.sourceHandle === output.route);
-          if (firedEdges.length === 0 && (outgoing.get(node.id) ?? []).length > 0) {
-            throw new PlatformError(
-              'WORKFLOW_ERROR',
-              `Router node ${node.id} selected route "${output.route}" but no outgoing edge carries that sourceHandle.`,
-            );
-          }
-          step = this.stepResult(node.id, 'COMPLETED', output, stepStartedAt);
-          evidence.push({
-            type: 'internal_trace',
-            summary: `router node ${node.id} selected route ${output.route}.`,
-            data: { nodeId: node.id, route: output.route },
-          });
-        } else {
-          // Handler-based nodes (trigger, action, tool, ai_model, agent,
-          // mcp, handoff, ...) with cache, retry, cost and evidence.
-          const cacheable = node.configuration.cacheable === true;
-          let cacheKey: string | undefined;
-          if (cacheable) {
-            cacheKey = this.stepCacheKey(workflow, node, stepInput);
-            const entry = await this.ports.stepCache.findByKey(context.tenantId, cacheKey);
-            if (entry) {
-              await this.ports.stepCache.recordHit(context.tenantId, cacheKey, this.clock.isoNow());
-              await this.meter(context, { metric: 'step.cache_hit', unit: 'count', amount: 1, run, workflow, nodeId: node.id });
-              step = this.stepResult(node.id, 'CACHED', entry.output, stepStartedAt, { cacheKey, cacheHit: true });
-              run = await this.updateRun(run, { steps: [...run.steps, step] });
-              await this.emit(run, 'step.cached', { nodeId: node.id, nodeType: node.type, cacheKey }, ++sequence);
-              nodeOutput = entry.output;
-              firedEdges = this.firedEdgesFor(node, nodeOutput, outgoing);
-              executedKeys.add(key);
-              executedNodeIds.add(node.id);
-              outputs[node.id] = nodeOutput;
-              inFlightNodeId = undefined;
-              this.enqueueFiredEdges(pending, firedEdges, activation);
-              continue;
-            }
-            await this.meter(context, { metric: 'step.cache_miss', unit: 'count', amount: 1, run, workflow, nodeId: node.id });
-          }
-
-          const handler = runHandlers.get(node.type);
-          if (!handler) {
-            throw new PlatformError('WORKFLOW_ERROR', `No deterministic handler is registered for node type ${node.type}.`);
-          }
-          const result = await this.executeWithRetry(node, handler, stepInput, startedMs, maxDurationMs);
-          const resultCost = result.costMinor ?? 0;
-          if (!Number.isSafeInteger(resultCost) || resultCost < 0) {
-            throw new PlatformError('WORKFLOW_ERROR', `Node ${node.id} returned an invalid cost.`);
-          }
-          spentMinor += resultCost;
-          if (spentMinor > maxCostMinor) {
-            throw new PlatformError('WORKFLOW_ERROR', 'Run cost limit was exceeded.');
-          }
-          evidence.push(...result.evidence);
-          nodeOutput = result.output;
-          step = this.stepResult(node.id, 'COMPLETED', result.output, stepStartedAt, {
-            cacheKey,
-            costMinor: resultCost,
-            evidenceCount: result.evidence.length,
-          });
-          firedEdges = this.firedEdgesFor(node, nodeOutput, outgoing);
-
-          if (cacheKey) {
-            await this.ports.stepCache.save(OrcfloStepCacheEntrySchema.parse({
-              id: createId('cache'),
-              tenantId: context.tenantId,
-              key: cacheKey,
-              workflowId: workflow.id,
-              workflowVersion: workflow.version,
+          if (decision.outcome === 'require_approval') {
+            const step = this.stepResult(node.id, 'WAITING_APPROVAL', { reason: decision.reason });
+            run = await this.updateRun(run, { status: 'WAITING_APPROVAL', steps: [...run.steps, step] });
+            await this.emit(run, 'step.started', { nodeId: node.id, nodeType: node.type, reason: decision.reason }, ++sequence);
+            await this.publishDomainEvent('orcflo.run.approval_requested', run, workflow, {
               nodeId: node.id,
-              inputHash: cacheKey,
-              output: result.output,
-              hits: 0,
-              createdAt: this.clock.isoNow(),
-            }));
+              nodeType: node.type,
+              reason: decision.reason,
+            }, context);
+            return run;
           }
         }
 
-        run = await this.updateRun(run, { steps: [...run.steps, step] });
-        await this.emit(run, 'step.completed', {
-          nodeId: node.id,
-          nodeType: node.type,
-          costMinor: node.type === 'for_each' || node.type === 'condition' || node.type === 'router' ? 0 : (step.costMinor ?? 0),
-          evidenceCount: step.evidenceCount,
-        }, ++sequence);
-        await this.meter(context, { metric: 'step.count', unit: 'count', amount: 1, run, workflow, nodeId: node.id });
+        // 3b. Prepare activations and emit step.started (sequential, topo order).
+        const prepared = handlerActs.map((act) => {
+          const node = nodeById.get(act.nodeId)!;
+          const stepInput = { ...waveBaseInputs };
+          if (act.loopItem) {
+            stepInput.item = act.loopItem.item;
+            stepInput.index = act.loopItem.index;
+            stepInput.iteration = act.loopItem.iteration;
+          }
+          return { act, node, stepInput, stepStartedAt: this.clock.isoNow() };
+        });
+        for (const p of prepared) {
+          this.assertDeadline(startedMs, maxDurationMs);
+          inFlightNodeId = p.node.id;
+          await this.emit(run, 'step.started', { nodeId: p.node.id, nodeType: p.node.type }, ++sequence);
+        }
 
-        executedKeys.add(key);
-        executedNodeIds.add(node.id);
-        outputs[node.id] = nodeOutput;
-        inFlightNodeId = undefined;
-        this.enqueueFiredEdges(pending, firedEdges, activation, loopItem);
+        // 3c. Execute concurrently (§47). Results carry errors; nothing is
+        // mutated here, so the run record is never written concurrently.
+        const results = await this.mapWithConcurrency(prepared, maxConcurrency, async (p) => {
+          try {
+            const cacheable = p.node.configuration.cacheable === true;
+            let cacheKey: string | undefined;
+            if (cacheable) {
+              cacheKey = this.stepCacheKey(workflow, p.node, p.stepInput);
+              const entry = await this.ports.stepCache.findByKey(context.tenantId, cacheKey);
+              if (entry) {
+                return {
+                  p,
+                  cached: true as const,
+                  cacheKey,
+                  nodeOutput: entry.output,
+                  step: this.stepResult(p.node.id, 'CACHED', entry.output, p.stepStartedAt, { cacheKey, cacheHit: true }),
+                  firedEdges: this.firedEdgesFor(p.node, entry.output, outgoing),
+                  costMinor: 0,
+                  evidenceAdded: [] as ExecutionEvidence[],
+                };
+              }
+            }
+            const handler = runHandlers.get(p.node.type);
+            if (!handler) {
+              throw new PlatformError('WORKFLOW_ERROR', `No deterministic handler is registered for node type ${p.node.type}.`);
+            }
+            const result = await this.executeWithRetry(p.node, handler, p.stepInput, startedMs, maxDurationMs);
+            const resultCost = result.costMinor ?? 0;
+            if (!Number.isSafeInteger(resultCost) || resultCost < 0) {
+              throw new PlatformError('WORKFLOW_ERROR', `Node ${p.node.id} returned an invalid cost.`);
+            }
+            return {
+              p,
+              cached: false as const,
+              cacheKey,
+              nodeOutput: result.output,
+              step: this.stepResult(p.node.id, 'COMPLETED', result.output, p.stepStartedAt, {
+                cacheKey,
+                costMinor: resultCost,
+                evidenceCount: result.evidence.length,
+              }),
+              firedEdges: this.firedEdgesFor(p.node, result.output, outgoing),
+              costMinor: resultCost,
+              evidenceAdded: result.evidence,
+            };
+          } catch (error) {
+            return { p, error };
+          }
+        });
+
+        // 3d. Apply results sequentially in topological order (deterministic).
+        for (const result of results) {
+          const { p } = result;
+          if ('error' in result) {
+            inFlightNodeId = p.node.id;
+            throw result.error;
+          }
+          nodeExecutions += 1;
+          if (nodeExecutions > maxNodeExecutions) {
+            throw new PlatformError('WORKFLOW_ERROR', `Run exceeded its node execution cap (${maxNodeExecutions}).`);
+          }
+          if (result.cached) {
+            await this.ports.stepCache.recordHit(context.tenantId, result.cacheKey!, this.clock.isoNow());
+            await this.meter(context, { metric: 'step.cache_hit', unit: 'count', amount: 1, run, workflow, nodeId: p.node.id });
+            run = await this.updateRun(run, { steps: [...run.steps, result.step] });
+            await this.emit(run, 'step.cached', { nodeId: p.node.id, nodeType: p.node.type, cacheKey: result.cacheKey }, ++sequence);
+          } else {
+            spentMinor += result.costMinor;
+            if (spentMinor > maxCostMinor) {
+              throw new PlatformError('WORKFLOW_ERROR', 'Run cost limit was exceeded.');
+            }
+            evidence.push(...result.evidenceAdded);
+            if (result.cacheKey) {
+              await this.meter(context, { metric: 'step.cache_miss', unit: 'count', amount: 1, run, workflow, nodeId: p.node.id });
+            }
+            run = await this.updateRun(run, { steps: [...run.steps, result.step] });
+            await this.emit(run, 'step.completed', {
+              nodeId: p.node.id,
+              nodeType: p.node.type,
+              costMinor: result.costMinor,
+              evidenceCount: result.step.evidenceCount,
+              cacheKey: result.cacheKey,
+            }, ++sequence);
+            if (result.cacheKey) {
+              await this.ports.stepCache.save(OrcfloStepCacheEntrySchema.parse({
+                id: createId('cache'),
+                tenantId: context.tenantId,
+                key: result.cacheKey,
+                workflowId: workflow.id,
+                workflowVersion: workflow.version,
+                nodeId: p.node.id,
+                inputHash: result.cacheKey,
+                output: result.nodeOutput,
+                hits: 0,
+                createdAt: this.clock.isoNow(),
+              }));
+            }
+          }
+          await this.meter(context, { metric: 'step.count', unit: 'count', amount: 1, run, workflow, nodeId: p.node.id });
+          executedKeys.add(keyOf(p.act));
+          executedNodeIds.add(p.node.id);
+          outputs[p.node.id] = result.nodeOutput;
+          inFlightNodeId = undefined;
+          this.enqueueFiredEdges(nextPending, result.firedEdges, p.act, p.act.loopItem);
+        }
+
+        pending.push(...nextPending);
       }
 
       // Record SKIPPED steps for nodes in untaken branches (run history).
@@ -751,6 +859,40 @@ export class OrcfloEngine {
       }
       pending.push({ nodeId: edge.target, iteration: activation.iteration, loopItem: loopItem ?? activation.loopItem });
     }
+  }
+
+  /**
+   * §47 — run `operation` over `items` with at most `limit` concurrent
+   * invocations, preserving input order in the results. Exceptions are
+   * captured per item and re-thrown in input order after all workers
+   * settle, so a failing branch never leaks an unhandled rejection.
+   */
+  private async mapWithConcurrency<T, U>(
+    items: readonly T[],
+    limit: number,
+    operation: (item: T) => Promise<U>,
+  ): Promise<U[]> {
+    const results = new Array<U | undefined>(items.length);
+    const errors: Array<{ index: number; error: unknown }> = [];
+    let cursor = 0;
+    const workerCount = Math.max(1, Math.min(Math.trunc(limit), items.length));
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        try {
+          results[index] = await operation(items[index]);
+        } catch (error) {
+          errors.push({ index, error });
+        }
+      }
+    });
+    await Promise.all(workers);
+    if (errors.length > 0) {
+      errors.sort((a, b) => a.index - b.index);
+      throw errors[0].error;
+    }
+    return results as U[];
   }
 
   private async executeWithRetry(

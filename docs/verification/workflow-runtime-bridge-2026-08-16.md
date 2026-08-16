@@ -4,6 +4,8 @@
 
 **Follow-up increment (same day): deterministic control flow.** The Orcflo engine now executes graphs rather than linear topo passes: `condition` nodes + `condition` edges (§12), `router` nodes (§13), and bounded `for_each` loops with `loop`/`loopExit` edges (§14), with loop-aware graph validation (§45). Detailed evidence in `docs/verification/orcflo-engine-2026-08-16.md` §11.
 
+**Follow-up increment (same day): parallel execution (§47).** Independent handler nodes run concurrently up to a bounded `maxConcurrency` with deterministic step/event ordering; control nodes remain sequential. Detailed evidence in `docs/verification/orcflo-engine-2026-08-16.md` §12.
+
 ## 1. What this increment adds
 
 | Piece | Location | Behavior verified |
@@ -101,7 +103,7 @@ Legend: ✅ implemented in this or the prior Orcflo increment · 🟡 partial (c
 | 44 | Canvas actions | 🟡 | Save/publish/run/view-run exist server-side; canvas UI actions for the Orcflo surface: future. |
 | 45 | Graph validation incl. cycles vs bounded loops | ✅ | `validateWorkflowGraph` accepts cycles ONLY as bounded loops: `loop` edges must target `for_each` heads, heads need a `loopExit` edge, nested loops rejected, router edges validated against declared routes; accidental infinite cycles still rejected. Added 2026-08-16 control-flow increment. |
 | 46 | Engine pipeline LOAD→VALIDATE→CREATE RUN→…→FINAL OUTPUT | ✅ | `OrcfloEngine.startRun` implements this sequence. |
-| 47 | Concurrency for independent nodes with limits | ⬜ | Future (topological sequential execution today). |
+| 47 | Concurrency for independent nodes with limits | ✅ | Wave-based parallel execution: handler nodes ready at the same moment run concurrently up to `maxConcurrency` (default 4, clamp [1, 32], per-run); control nodes sequential; dedupe so merged nodes run once; deterministic topological step/event ordering; node-execution/cost/deadline caps enforced. Added 2026-08-16 parallel increment. |
 | 48 | Idempotency (webhooks, payments, email, schedules) | ⬜ | Future. |
 | 49 | Human-in-the-loop node, persistable + resumable | 🟡 | `human_approval` node → `WAITING_APPROVAL` persisted; resumption: future. Agent-node `WAITING_APPROVAL` fails the run today. |
 | 50 | Agent ⇄ Workflow interop with correlation/parent/depth/timeout/budget | ✅ | This increment: correlation preserved, parent execution id, depth limit, timeout (tool timeoutMs), budget (run + agent budgets). |
