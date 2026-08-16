@@ -5,6 +5,7 @@ import type {
   OutboxMessage,
   ToolDefinition,
   Transaction,
+  Transcript,
   Workflow,
   WorkflowExecution,
 } from '../domain/schemas';
@@ -13,6 +14,7 @@ import { createOutboxMessage } from '../domain/events';
 import type {
   AgentRepository,
   ApprovalRepository,
+  Clock,
   EventLog,
   EventPublisher,
   ExecutionRepository,
@@ -23,6 +25,7 @@ import type {
   ToolRepository,
   ToolResult,
   TransactionRepository,
+  TranscriptRepository,
   UnitOfWork,
   WorkflowRepository,
 } from '../application/ports';
@@ -46,6 +49,7 @@ type InMemoryState = {
   approvals: Map<string, HumanApproval>;
   events: Map<string, DomainEvent>;
   outbox: Map<string, OutboxMessage>;
+  transcripts: Map<string, Transcript>;
 };
 
 function emptyState(): InMemoryState {
@@ -58,6 +62,7 @@ function emptyState(): InMemoryState {
     approvals: new Map(),
     events: new Map(),
     outbox: new Map(),
+    transcripts: new Map(),
   };
 }
 
@@ -242,9 +247,11 @@ export class InMemoryUnitOfWork implements UnitOfWork {
 export function createInMemoryPersistencePorts(): {
   store: InMemoryPlatformStore;
   ports: PersistencePorts;
+  transcripts: InMemoryTranscriptRepository;
 } {
   const store = new InMemoryPlatformStore();
   const outbox = new InMemoryOutboxRepository(store);
+  const transcripts = new InMemoryTranscriptRepository(store);
   const ports: PersistencePorts = {
     agents: new InMemoryAgentRepository(store),
     tools: new InMemoryToolRepository(store),
@@ -255,7 +262,7 @@ export function createInMemoryPersistencePorts(): {
     events: new InMemoryEventBus(store, outbox),
     outbox,
   };
-  return { store, ports };
+  return { store, ports, transcripts };
 }
 
 export type ToolHandler = (invocation: ToolInvocation) => Promise<ToolResult> | ToolResult;
@@ -272,5 +279,61 @@ export class DeterministicToolExecutor implements ToolExecutor {
       throw new PlatformError('TIMEOUT', `Tool ${invocation.tool.name} was aborted.`, { retryable: true });
     }
     return handler(invocation);
+  }
+}
+
+// --- Capability 04 — In-memory transcript repository (additive) ---
+
+export class InMemoryTranscriptRepository implements TranscriptRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+
+  async save(transcript: Transcript): Promise<void> {
+    assertTenantOwnership(this.store.state.transcripts.get(transcript.id), transcript);
+    this.store.state.transcripts.set(transcript.id, copy(transcript));
+  }
+
+  async listBySession(tenantId: string, sessionId: string, limit = 100): Promise<Transcript[]> {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+    return [...this.store.state.transcripts.values()]
+      .filter((t) => t.tenantId === tenantId && t.sessionId === sessionId)
+      .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
+
+  async listByParticipant(tenantId: string, participantId: string, limit = 100): Promise<Transcript[]> {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+    return [...this.store.state.transcripts.values()]
+      .filter((t) => t.tenantId === tenantId && t.participantId === participantId)
+      .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
+}
+
+// --- Capability 01 — System clock (default; tests can inject a fixed clock) ---
+
+export class SystemClock implements Clock {
+  now(): number {
+    return Date.now();
+  }
+  isoNow(): string {
+    return new Date().toISOString();
+  }
+}
+
+export class FixedClock implements Clock {
+  private currentIso: string;
+  constructor(fixedIso: string) {
+    this.currentIso = fixedIso;
+  }
+  now(): number {
+    return Date.parse(this.currentIso);
+  }
+  isoNow(): string {
+    return this.currentIso;
+  }
+  advance(deltaMs: number): void {
+    this.currentIso = new Date(Date.parse(this.currentIso) + deltaMs).toISOString();
   }
 }

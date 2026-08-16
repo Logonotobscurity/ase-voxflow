@@ -1,13 +1,19 @@
 import type {
   Agent,
+  AvatarSessionRef,
   DomainEvent,
   HumanApproval,
+  McpServerConfig,
   OutboxMessage,
   ToolDefinition,
+  TtsCue,
   Transaction,
+  Transcript,
   Workflow,
   WorkflowExecution,
 } from '../domain/schemas';
+
+export type { AvatarSessionRef } from '../domain/schemas';
 
 export type ExecutionEvidence = {
   type: 'tool_result' | 'state_change' | 'approval' | 'external_reference';
@@ -107,7 +113,85 @@ export interface ToolExecutor {
   execute(invocation: ToolInvocation): Promise<ToolResult>;
 }
 
+// --- Capability extension ports (additive, see docs/ARCHITECTURE.md §5) ---
+
+/**
+ * Capability 04 — Transcript persistence.
+ *
+ * Persists an already-transcribed line with session/participant metadata.
+ * The associated audit event for a command still excludes raw text per
+ * `agent-command-service.ts`; this is a separate durable record so the
+ * UI, search, and analytics can re-derive text on demand.
+ */
+export interface TranscriptRepository {
+  save(transcript: Transcript): Promise<void>;
+  listBySession(tenantId: string, sessionId: string, limit?: number): Promise<Transcript[]>;
+  listByParticipant(tenantId: string, participantId: string, limit?: number): Promise<Transcript[]>;
+}
+
+/**
+ * Capability 06 — MCP allowlist. The registry returns only the servers
+ * a tenant has previously registered as `trusted === true`. A returned
+ * server is still subject to `evaluateToolPolicy` and the workflow-node
+ * `mcp` policy gate.
+ */
+export interface McpServerRegistry {
+  listAllowedServers(tenantId: string): Promise<McpServerConfig[]>;
+  getServer(tenantId: string, serverId: string): Promise<McpServerConfig | null>;
+}
+
+/**
+ * Capability 10 — Avatar provider adapter (no provider shipped).
+ *
+ * A future Tavus / Bithuman / LemonSlice adapter implements this
+ * interface. A default `no-op` implementation is wired in
+ * `lib/server/platform.ts` so the UI can render an "avatar not
+ * configured" state without coupling to any vendor.
+ */
+export type AvatarSendPayload =
+  | { kind: 'text'; text: string; tts?: TtsCue }
+  | { kind: 'audio'; stream: AsyncIterable<Uint8Array> };
+
+export interface AvatarSessionAdapter {
+  createSession(tenantId: string, participantId: string): Promise<AvatarSessionRef>;
+  send(ref: AvatarSessionRef, payload: AvatarSendPayload): Promise<void>;
+  terminate(ref: AvatarSessionRef): Promise<void>;
+}
+
+/**
+ * Capability 01 — Clock port.
+ *
+ * Defaults to `Date.now()` and `new Date().toISOString()`. Tests inject
+ * a fixed clock to make bounded-runtime verification reproducible
+ * without faking timers. Adding it as a port (not a global) keeps
+ * determinism reviewable.
+ */
+export interface Clock {
+  now(): number;
+  isoNow(): string;
+}
+
 export type PlatformPorts = PersistencePorts & {
   unitOfWork: UnitOfWork;
   toolExecutor: ToolExecutor;
+  /**
+   * Capability 01 — injectable clock. Optional: when absent, the
+   * bounded runtime falls back to `Date.now()`/`new Date().toISOString()`.
+   * Tests inject a fixed clock to make verification reproducible.
+   */
+  clock?: Clock;
 };
+
+/**
+ * Extension ports are *optional* at the composition root. The memory
+ * adapter implements transcripts; the no-op avatar and empty MCP
+ * registry are wired by default. The shape below documents the
+ * non-persistence capabilities the platform can adopt.
+ */
+export type PlatformExtensionPorts = {
+  transcripts?: TranscriptRepository;
+  mcpServers?: McpServerRegistry;
+  avatar?: AvatarSessionAdapter;
+};
+
+export type ExtendedPlatformPorts = PlatformPorts & PlatformExtensionPorts;
