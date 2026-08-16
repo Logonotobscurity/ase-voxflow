@@ -130,6 +130,71 @@ export interface TranscriptRepository {
 }
 
 /**
+ * Audit §1 — Tenant membership.
+ *
+ * The audit found that the only thing stopping a request from one
+ * tenant reaching another tenant's data was a string match in the
+ * request headers. `TenantMembershipRepository` is the durable
+ * authority: it returns the role a given actor actually has in a
+ * given tenant, as provisioned by the tenant administrator. The
+ * identity layer calls it after the verifier identifies the actor.
+ */
+export interface TenantMembership {
+  tenantId: string;
+  actorId: string;
+  role: import('../domain/schemas').TenantRole;
+}
+
+export interface TenantMembershipRepository {
+  find(tenantId: string, actorId: string): Promise<TenantMembership | null>;
+  listForActor(actorId: string): Promise<TenantMembership[]>;
+  upsert(membership: TenantMembership): Promise<void>;
+}
+
+/**
+ * Audit §1 — Identity verifier.
+ *
+ * A verifier is the only thing trusted to identify a caller. Two
+ * implementations ship in this increment:
+ *   - `DemoHeaderIdentityVerifier` for `ASE_RUNTIME_MODE=demo` only
+ *   - `BearerTokenIdentityVerifier` for staging / production (single
+ *     shared secret rotated via env)
+ *
+ * The verifier does NOT decide which tenant the caller is acting on;
+ * it only returns the actor subject and the (verifier-supplied)
+ * tenant claim. The next layer — `getRequestContext` — reconciles
+ * the verifier output with `TenantMembershipRepository` before any
+ * business code runs.
+ */
+export type VerifiedIdentity =
+  | {
+      kind: 'demo';
+      subject: string;
+      actorId: string;
+      claimedTenantId: string;
+      claimedRole: import('../domain/schemas').TenantRole;
+      claimedEnvironment: 'demo' | 'development' | 'staging' | 'production';
+    }
+  | {
+      kind: 'bearer';
+      subject: string;
+      actorId: string;
+      claimedTenantId: string;
+      claimedRole: import('../domain/schemas').TenantRole;
+      claimedEnvironment: 'demo' | 'development' | 'staging' | 'production';
+    };
+
+export interface IdentityVerifier {
+  /**
+   * Verify the request and return a `VerifiedIdentity`, or throw
+   * `PlatformError('AUTHENTICATION_REQUIRED')` if verification fails.
+   * Implementations MUST NOT default to "trusted" in any non-demo
+   * runtime mode.
+   */
+  verify(request: { headers: Headers }): Promise<VerifiedIdentity>;
+}
+
+/**
  * Capability 06 — MCP allowlist. The registry returns only the servers
  * a tenant has previously registered as `trusted === true`. A returned
  * server is still subject to `evaluateToolPolicy` and the workflow-node
@@ -180,6 +245,18 @@ export type PlatformPorts = PersistencePorts & {
    * Tests inject a fixed clock to make verification reproducible.
    */
   clock?: Clock;
+  /**
+   * Audit §1 — tenant membership authority. Optional in memory mode
+   * (the demo verifier does not require a persisted membership for
+   * the `tenant_demo` actor). Production deployments MUST wire a
+   * real implementation backed by the Prisma `TenantMember` table.
+   */
+  tenantMembers?: TenantMembershipRepository;
+  /**
+   * Audit §1 — identity verifier. Wired by the composition root
+   * according to `ASE_RUNTIME_MODE` and `ASE_IDENTITY_VERIFIER`.
+   */
+  identity?: IdentityVerifier;
 };
 
 /**

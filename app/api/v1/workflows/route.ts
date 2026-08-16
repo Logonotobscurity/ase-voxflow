@@ -28,7 +28,7 @@ const SaveWorkflowSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    const context = getRequestContext(request);
+    const context = await getRequestContext(request);
     const platform = getPlatform();
     const workflows = await platform.ports.workflows.list(context.tenantId);
     return apiSuccess({ workflows, persistence: platform.persistence });
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const context = getRequestContext(request);
+    const context = await getRequestContext(request);
     if (!roleAllows(context.role, 'workflow:write')) {
       throw new PlatformError('AUTHORIZATION_DENIED', `Role ${context.role} cannot save workflows.`);
     }

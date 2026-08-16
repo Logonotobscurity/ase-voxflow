@@ -13,7 +13,7 @@ const AgentCommandRequestSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const context = getRequestContext(request);
+    const context = await getRequestContext(request);
     const input = AgentCommandRequestSchema.parse(await parseJsonBody(request));
     const platform = getPlatform();
     const proposal = await platform.commands.propose({ ...input, context });

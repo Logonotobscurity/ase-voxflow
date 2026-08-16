@@ -20,6 +20,8 @@ import type {
   ExecutionRepository,
   OutboxRepository,
   PersistencePorts,
+  TenantMembership,
+  TenantMembershipRepository,
   ToolExecutor,
   ToolInvocation,
   ToolRepository,
@@ -48,8 +50,10 @@ type InMemoryState = {
   transactions: Map<string, Transaction>;
   approvals: Map<string, HumanApproval>;
   events: Map<string, DomainEvent>;
-  outbox: Map<string, OutboxMessage>;
+  outbox: Map<string,OutboxMessage>;
   transcripts: Map<string, Transcript>;
+  // Audit §1 — tenant memberships. Keyed by `${tenantId}::${actorId}`.
+  memberships: Map<string, { tenantId: string; actorId: string; role: 'ADMIN' | 'BUILDER' | 'OPERATOR' | 'APPROVER' | 'VIEWER' }>;
 };
 
 function emptyState(): InMemoryState {
@@ -63,6 +67,7 @@ function emptyState(): InMemoryState {
     events: new Map(),
     outbox: new Map(),
     transcripts: new Map(),
+    memberships: new Map(),
   };
 }
 
@@ -248,10 +253,12 @@ export function createInMemoryPersistencePorts(): {
   store: InMemoryPlatformStore;
   ports: PersistencePorts;
   transcripts: InMemoryTranscriptRepository;
+  tenantMembers: InMemoryTenantMembershipRepository;
 } {
   const store = new InMemoryPlatformStore();
   const outbox = new InMemoryOutboxRepository(store);
   const transcripts = new InMemoryTranscriptRepository(store);
+  const tenantMembers = new InMemoryTenantMembershipRepository(store);
   const ports: PersistencePorts = {
     agents: new InMemoryAgentRepository(store),
     tools: new InMemoryToolRepository(store),
@@ -262,7 +269,7 @@ export function createInMemoryPersistencePorts(): {
     events: new InMemoryEventBus(store, outbox),
     outbox,
   };
-  return { store, ports, transcripts };
+  return { store, ports, transcripts, tenantMembers };
 }
 
 export type ToolHandler = (invocation: ToolInvocation) => Promise<ToolResult> | ToolResult;
@@ -279,6 +286,31 @@ export class DeterministicToolExecutor implements ToolExecutor {
       throw new PlatformError('TIMEOUT', `Tool ${invocation.tool.name} was aborted.`, { retryable: true });
     }
     return handler(invocation);
+  }
+}
+
+// --- Audit §1 — In-memory tenant membership repository (additive) ---
+
+export class InMemoryTenantMembershipRepository implements TenantMembershipRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+
+  private key(tenantId: string, actorId: string): string {
+    return `${tenantId}::${actorId}`;
+  }
+
+  async find(tenantId: string, actorId: string) {
+    const v = this.store.state.memberships.get(this.key(tenantId, actorId));
+    return v ? copy(v) : null;
+  }
+
+  async listForActor(actorId: string) {
+    return [...this.store.state.memberships.values()]
+      .filter((m) => m.actorId === actorId)
+      .map(copy);
+  }
+
+  async upsert(membership: TenantMembership): Promise<void> {
+    this.store.state.memberships.set(this.key(membership.tenantId, membership.actorId), copy(membership));
   }
 }
 

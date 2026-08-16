@@ -19,6 +19,10 @@ import {
 } from '../infrastructure/prisma-adapters';
 import { getPrismaClient } from '../infrastructure/prisma-client';
 import { EmptyMcpServerRegistry, NoopAvatarSessionAdapter } from '../infrastructure/extension-adapters';
+import {
+  BearerTokenIdentityVerifier,
+  DemoHeaderIdentityVerifier,
+} from '../infrastructure/identity-verifiers';
 
 export type PlatformApplication = {
   ports: PlatformPorts;
@@ -38,6 +42,7 @@ const globalPlatform = globalThis as unknown as { asePlatform?: PlatformApplicat
 export function getPlatform(): PlatformApplication {
   if (globalPlatform.asePlatform) return globalPlatform.asePlatform;
   const persistenceMode = process.env.ASE_PERSISTENCE_MODE ?? 'memory';
+  const runtimeMode = process.env.ASE_RUNTIME_MODE ?? 'demo';
   const toolExecutor = new DeterministicToolExecutor(new Map());
   const clock = new SystemClock();
   let ports: PlatformPorts;
@@ -54,16 +59,31 @@ export function getPlatform(): PlatformApplication {
     };
     persistence = 'postgresql';
   } else if (persistenceMode === 'memory') {
-    const { store, ports: persistencePorts } = createInMemoryPersistencePorts();
+    const { store, ports: persistencePorts, tenantMembers } = createInMemoryPersistencePorts();
     ports = {
       ...persistencePorts,
       unitOfWork: new InMemoryUnitOfWork(store, persistencePorts),
       toolExecutor,
       clock,
+      tenantMembers,
     };
     persistence = 'ephemeral-memory';
   } else {
     throw new PlatformError('CONFIGURATION_ERROR', `Unsupported ASE_PERSISTENCE_MODE: ${persistenceMode}.`);
+  }
+
+  // Audit §1 — identity verifier selection.
+  if (runtimeMode === 'demo') {
+    ports.identity = new DemoHeaderIdentityVerifier();
+  } else {
+    const token = process.env.ASE_PROD_BEARER_TOKEN;
+    if (!token) {
+      throw new PlatformError(
+        'CONFIGURATION_ERROR',
+        'ASE_PROD_BEARER_TOKEN is required for non-demo runtime modes. Set it in the deployment secret store.',
+      );
+    }
+    ports.identity = new BearerTokenIdentityVerifier(token);
   }
 
   const handlers = createDemoNodeHandlers();
