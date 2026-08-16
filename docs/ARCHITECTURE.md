@@ -95,6 +95,8 @@ No unresolved side-by-side implementation fork may receive features. If a new va
 
 **Mandatory reading order:** read this section before trusting §§1–4 or implementation summaries. Newer entries override older assumptions. Record every reversal, fork choice, and previously open resolution here.
 
+**Canonical ADR register:** the stable, concise ADR summaries live in [`docs/ARCHITECTURE_DECISIONS.md`](ARCHITECTURE_DECISIONS.md) (ADR-001…ADR-016). This §5 log is the dated source of truth with reasons and consequences; the ADR register is the quick-reference agents must check first. The engineering-control prompt governing how agents evolve this system is [`docs/CODE_AGENT_MASTER_PROMPT.md`](CODE_AGENT_MASTER_PROMPT.md); the development-spec index is [`docs/DEVELOPMENT_SPEC.md`](DEVELOPMENT_SPEC.md).
+
 | Date | Decision / reversal | Reason and consequence |
 |---|---|---|
 | 2026-08-14 | Resolved `BRAND = Ase`, `PLATFORM = VOXFLOW`; demoted LOG_ON AI to redirect alias. | Prevents identity drift and duplicate marketing forks. |

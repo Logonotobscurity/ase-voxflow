@@ -5,7 +5,10 @@
 `IMPLEMENTED` / `PARTIAL` / `FUTURE` in
 [`docs/verification/workflow-runtime-bridge-2026-08-16.md`](verification/workflow-runtime-bridge-2026-08-16.md)
 override nothing here; the directive is the specification, the verification doc is the
-current-state map. `docs/ARCHITECTURE.md` §5 remains the decision authority.
+current-state map. `docs/ARCHITECTURE.md` §5 and `docs/ARCHITECTURE_DECISIONS.md`
+(the canonical ADR register) remain the decision authorities. Agents working on this
+system must also read `docs/CODE_AGENT_MASTER_PROMPT.md` (engineering control prompt)
+and `docs/DEVELOPMENT_SPEC.md` (development-spec index).
 
 ## PURPOSE
 

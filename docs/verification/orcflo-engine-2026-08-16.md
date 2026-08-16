@@ -143,3 +143,13 @@ A workflow can now be exposed as an **anonymous public interface** (the "public 
 - **Synthetic `PUBLIC` role** — execute-only (`workflow:execute`), never a membership role (`MembershipRole` excludes it); node/agent/tool policies still apply, so a public interface cannot bypass tenant gates (an approval node still pauses the run). Cross-tenant slug lookup via `OrcfloTriggerRepository.findPublicBySlug` (memory scan; Prisma JSON path filter).
 
 Verified: lint + strict typecheck + 221 tests (15 service + 1 route test: creation/slug uniqueness/RBAC, anonymous run + lastFiredAt, schema validation incl. strict unknown-field rejection, defaults, NOT_FOUND for unknown/disabled, per-minute + daily limits with window reset, derived + explicit idempotency, cost limits, policy non-bypass via approval pause, route-level 202/422/429/404 + authenticated listing) + optimized 40-route build + live HTTP smoke (create → anonymous submit with default applied → duplicate replay → 422 → 429 → authenticated list).
+
+## 15. Follow-up increment — engineering-governance documents
+
+Added the three-file governance structure under `docs/` (no code changes; documentation only):
+
+- **`docs/CODE_AGENT_MASTER_PROMPT.md`** — the engineering control prompt (v1.0, verbatim): inspect-first, reuse-before-create, no duplicate core systems, LLM output is untrusted input, deterministic logic over LLM for critical decisions, execution safety/approvals as persisted state, structured events/observability, build verification before claiming success, never fabricate, the §62 change report and §63 quality gate, and the VOXFLOW engineering contract (GOAL → PLAN → ACT → OBSERVE → VERIFY → ADAPT → OUTCOME).
+- **`docs/ARCHITECTURE_DECISIONS.md`** — canonical ADR register: ADR-001 (modular monolith with asynchronous boundaries before microservices), ADR-002 (the workflow execution engine is the canonical execution substrate — agents/voice/vision/MCP must invoke the same primitives), ADR-003 (existing code paths have priority over greenfield), plus a consolidated register (ADR-004…ADR-016) carrying forward every decision already recorded in `docs/ARCHITECTURE.md` §5 so future agents do not rediscover and undo them.
+- **`docs/DEVELOPMENT_SPEC.md`** — the "what VOXFLOW is and what we are building" index, derived strictly from the repository's verified docs (README, ARCHITECTURE.md, WORKFLOW-ENGINE-DIRECTIVE.md, verification records).
+
+`docs/ARCHITECTURE.md` §5 and `docs/WORKFLOW-ENGINE-DIRECTIVE.md` now link the register, the master prompt, and the spec index. Verified: fence balance and section integrity of the master prompt (68 sections 00–67); markdown only, no lint/typecheck/test/build impact.
