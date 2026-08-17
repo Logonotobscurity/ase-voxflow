@@ -543,6 +543,59 @@ export class InMemoryOrcfloRunRepository implements OrcfloRunRepository {
       .slice(0, safeLimit)
       .map(copy);
   }
+
+  // Multi-worker claim/lease — a simple serial lock so a single process
+  // can simulate the FOR UPDATE SKIP LOCKED semantics the Prisma adapter
+  // uses in production (mirrors the outbox in-memory adapter).
+  private claimQueue: Promise<void> = Promise.resolve();
+
+  async claimBatch(workerId: string, leaseMs: number, limit: number): Promise<OrcfloRun[]> {
+    const previous = this.claimQueue;
+    let release: () => void = () => {};
+    this.claimQueue = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      const claimedUntilIso = new Date(nowMs + Math.max(100, Math.trunc(leaseMs))).toISOString();
+      const candidates = [...this.store.state.orcfloRuns.values()]
+        .filter((run) => (
+          run.status === 'PENDING'
+          && (run.claimedBy === undefined || (run.claimedUntil !== undefined && Date.parse(run.claimedUntil) <= nowMs))
+        ))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .slice(0, safeLimit);
+      const result: OrcfloRun[] = [];
+      for (const candidate of candidates) {
+        const next: OrcfloRun = {
+          ...copy(candidate),
+          claimedBy: workerId,
+          claimedUntil: claimedUntilIso,
+          updatedAt: nowIso,
+        };
+        this.store.state.orcfloRuns.set(next.id, copy(next));
+        result.push(copy(next));
+      }
+      return result;
+    } finally {
+      release();
+    }
+  }
+
+  async releaseClaim(id: string, workerId: string): Promise<void> {
+    const value = this.store.state.orcfloRuns.get(id);
+    if (!value) throw new PlatformError('NOT_FOUND', `Run ${id} was not found.`);
+    if (value.claimedBy !== workerId) return; // never clear another worker's lease
+    const nowIso = new Date().toISOString();
+    const updated: OrcfloRun = {
+      ...copy(value),
+      claimedBy: undefined,
+      claimedUntil: undefined,
+      updatedAt: nowIso,
+    };
+    this.store.state.orcfloRuns.set(id, copy(updated));
+  }
 }
 
 export class InMemoryOrcfloRunEventRepository implements OrcfloRunEventRepository {

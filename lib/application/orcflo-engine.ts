@@ -236,13 +236,25 @@ export class OrcfloEngine {
    * are left to the worker that owns them (single-process semantics in
    * this increment; multi-worker claim/lease is future work).
    */
-  async executeRun(runId: string): Promise<OrcfloRun> {
+  async executeRun(runId: string, options: { workerId?: string } = {}): Promise<OrcfloRun> {
     const stored = await this.ports.runs.findByIdGlobal(runId);
     if (!stored) throw new PlatformError('NOT_FOUND', `Run ${runId} was not found.`);
     if (stored.status === 'COMPLETED' || stored.status === 'FAILED' || stored.status === 'CANCELLED') {
       return stored;
     }
     if (stored.status === 'RUNNING') return stored;
+    // Multi-worker claim guard: a PENDING run claimed by another worker
+    // with a live lease is being executed elsewhere — leave it alone.
+    // The claiming worker passes its own workerId and proceeds.
+    if (
+      stored.status === 'PENDING'
+      && stored.claimedBy !== undefined
+      && stored.claimedUntil !== undefined
+      && Date.parse(stored.claimedUntil) > Date.now()
+      && stored.claimedBy !== options.workerId
+    ) {
+      return stored;
+    }
 
     const resume = stored.status === 'WAITING_APPROVAL' && stored.approval?.decision === 'APPROVED';
     if (stored.status === 'WAITING_APPROVAL' && !resume) return stored; // paused, no decision yet

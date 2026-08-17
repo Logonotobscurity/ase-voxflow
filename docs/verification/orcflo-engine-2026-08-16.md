@@ -195,3 +195,13 @@ Control-node decisions are now first-class, tenant-scoped, queryable records:
 Verified: lint + strict typecheck + 235 tests (3 engine + 1 route decision tests: condition/router/for_each kinds with results and ordering, tenant isolation, async+resume recording) + optimized 40-route build + migration verified on PostgreSQL 16 (PGlite).
 
 With this, the "deterministic branch evaluation" open action is fully resolved: deterministic conditions/routers/loops (control-flow increment), parallel execution, agent-node wiring, and now persisted decision records + branch coverage evidence.
+
+## 20. Follow-up increment — multi-worker run claim/lease
+
+The run worker is now multi-worker safe, mirroring the outbox claim/lease protocol (Audit §3):
+
+- **Contract** — `OrcfloRun` carries `claimedBy`/`claimedUntil`; `OrcfloRunRepository` gains `claimBatch(workerId, leaseMs, limit)` and `releaseClaim(id, workerId)` (conditional on ownership). `listPending` remains for monitoring.
+- **Adapters** — memory: serialized claim lock simulating `FOR UPDATE SKIP LOCKED`; Prisma: atomic `FOR UPDATE SKIP LOCKED` selection + conditional UPDATE inside one transaction, reclaiming rows whose lease expired. Migration `20260817001000_orcflo_run_claim_lease` (columns + `(status, claimedBy, claimedUntil)` index), verified on PostgreSQL 16 (PGlite).
+- **Dispatcher** — `RunDispatcher` claims a batch with its worker id + lease (`ASE_RUN_WORKER_ID`, `ASE_RUN_LEASE_MS` default 60s), executes each claimed run via `executeRun(runId, { workerId })`, and releases the claim once the run is parked (WAITING_APPROVAL) or terminal. `executeRun` guards against executing a run claimed by another worker with a live lease. Lease renewal/heartbeat remains future work (a crashed worker's expired lease is reclaimable, as with the outbox).
+
+Verified: lint + strict typecheck + 243 tests (8 new claim/lease tests: batch claim exclusivity while lease live, expiry reclaim, ownership-conditional release, dispatcher claim→execute→release on completion and on approval-pause, cross-worker guard, concurrent disjoint draining) + optimized 40-route build + migration verified on PostgreSQL 16 (PGlite).

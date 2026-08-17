@@ -265,7 +265,10 @@ export function getPlatform(): PlatformApplication {
   // Durable execution — run worker + schedule worker loops (unref'd, so
   // the process can still exit; same pattern as the outbox dispatcher).
   const triggerService = new OrcfloTriggerService(orcfloPorts, orcfloEngine, clock);
-  const runDispatcher = new RunDispatcher(orcfloEngine, orcfloPorts, clock);
+  const runDispatcher = new RunDispatcher(orcfloEngine, orcfloPorts, clock, {
+    workerId: process.env.ASE_RUN_WORKER_ID ?? `run-worker-${process.pid}`,
+    leaseMs: Number.parseInt(process.env.ASE_RUN_LEASE_MS ?? '60000', 10),
+  });
   const scheduleDispatcher = new ScheduleDispatcher(triggerService, clock);
   const makeLoop = (
     tick: () => Promise<unknown>,

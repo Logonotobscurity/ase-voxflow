@@ -113,6 +113,14 @@ export const OrcfloRunSchema = z.object({
     reason: z.string().max(2_000).optional(),
     decidedAt: DateTimeSchema,
   }).strict().optional(),
+  /**
+   * Multi-worker claim/lease (mirrors the outbox, Audit §3). A PENDING
+   * run claimed by a worker carries `claimedBy` and `claimedUntil`; a
+   * worker may reclaim rows whose lease has expired. The claim is
+   * cleared when the run reaches a parked/terminal state.
+   */
+  claimedBy: z.string().max(200).optional(),
+  claimedUntil: DateTimeSchema.optional(),
   startedAt: DateTimeSchema.optional(),
   completedAt: DateTimeSchema.optional(),
   createdAt: DateTimeSchema,

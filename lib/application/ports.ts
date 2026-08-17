@@ -348,10 +348,24 @@ export interface OrcfloRunRepository {
   listByTrigger(tenantId: string, triggerId: string, limit?: number): Promise<OrcfloRun[]>;
   /**
    * Durable execution — cross-tenant PENDING runs ready for a worker to
-   * execute. Single-worker semantics in this increment (the platform is
-   * a modular monolith); multi-worker claim/lease is future work.
+   * execute (monitoring/ops query; the dispatcher uses claimBatch).
    */
   listPending(limit?: number): Promise<OrcfloRun[]>;
+  /**
+   * Multi-worker claim/lease — atomically claim PENDING runs (or rows
+   * whose lease has expired) for this worker, setting `claimedBy` /
+   * `claimedUntil`. The implementation must be safe under concurrent
+   * workers: a row is given to exactly one worker (FOR UPDATE SKIP
+   * LOCKED in Prisma; a serialized lock in memory). Mirrors the outbox
+   * claim/lease protocol.
+   */
+  claimBatch(workerId: string, leaseMs: number, limit: number): Promise<OrcfloRun[]>;
+  /**
+   * Release this worker's claim on a run (parked at WAITING_APPROVAL or
+   * reached a terminal state). Conditional on `claimedBy` so a worker
+   * never clears another worker's live lease.
+   */
+  releaseClaim(id: string, workerId: string): Promise<void>;
 }
 
 export interface OrcfloRunEventRepository {

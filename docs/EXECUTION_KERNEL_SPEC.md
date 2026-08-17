@@ -632,7 +632,7 @@ Persist result
 Emit event
 ```
 
-The reference implementation now supports both modes: `createRun` persists a PENDING run with the caller context + limits captured on it, `executeRun` executes or resumes it, and an in-process `RunDispatcher` drains PENDING runs (idempotent re-ticks). Multi-worker claim/lease and a NATS-backed queue are the documented next step; the run stream and persistence make the boundary safe.
+The reference implementation now supports both modes: `createRun` persists a PENDING run with the caller context + limits captured on it, `executeRun` executes or resumes it, and `RunDispatcher` workers drain PENDING runs with a claim/lease protocol (`claimedBy`/`claimedUntil`, `FOR UPDATE SKIP LOCKED`, expiry reclaim) so multiple workers never execute the same run. A NATS-backed queue and lease renewal/heartbeat remain the documented next step; the run stream and persistence make the boundary safe.
 
 # 37. EXTERNAL ACTIONS
 

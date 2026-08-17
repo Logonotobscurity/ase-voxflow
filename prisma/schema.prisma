@@ -368,6 +368,11 @@ model OrcfloRun {
   // §49 resumable approval — the human decision for a run paused at
   // WAITING_APPROVAL (APPROVED triggers a resume; REJECTED cancels).
   approval      Json?
+  // Multi-worker claim/lease (mirrors the outbox, Audit §3): a PENDING
+  // run claimed by a worker carries claimedBy/claimedUntil; a worker may
+  // reclaim rows whose lease has expired.
+  claimedBy     String?
+  claimedUntil  DateTime?
   startedAt     DateTime?
   completedAt   DateTime?
   createdAt     DateTime @default(now())
@@ -381,6 +386,7 @@ model OrcfloRun {
   @@index([tenantId, workflowId, createdAt])
   @@index([tenantId, triggerId, createdAt])
   @@index([correlationId])
+  @@index([status, claimedBy, claimedUntil])
 }
 
 model OrcfloRunEvent {

@@ -534,6 +534,43 @@ export class PrismaOrcfloRunRepository implements OrcfloRunRepository {
     });
     return rows.map(mapOrcfloRun);
   }
+
+  // Multi-worker claim/lease — mirrors the outbox protocol: atomic
+  // FOR UPDATE SKIP LOCKED selection + conditional UPDATE inside one
+  // transaction, reclaiming rows whose lease has expired.
+  async claimBatch(workerId: string, leaseMs: number, limit: number): Promise<OrcfloRun[]> {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+    const leaseMsClamped = Math.max(100, Math.trunc(leaseMs));
+    const now = new Date();
+    const claimedUntil = new Date(now.getTime() + leaseMsClamped);
+    return await (this.prisma as PrismaClient).$transaction(async (tx) => {
+      const candidates = (await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM "OrcfloRun"
+        WHERE (
+          "status" = 'PENDING'
+          AND ("claimedBy" IS NULL OR "claimedUntil" <= ${now})
+        )
+        ORDER BY "createdAt" ASC
+        LIMIT ${safeLimit}
+        FOR UPDATE SKIP LOCKED
+      `)) as Array<{ id: string }>;
+      if (candidates.length === 0) return [];
+      const ids = candidates.map((c) => c.id);
+      await tx.orcfloRun.updateMany({
+        where: { id: { in: ids } },
+        data: { claimedBy: workerId, claimedUntil, updatedAt: now },
+      });
+      const rows = await tx.orcfloRun.findMany({ where: { id: { in: ids } } });
+      return rows.map(mapOrcfloRun);
+    });
+  }
+
+  async releaseClaim(id: string, workerId: string): Promise<void> {
+    await this.prisma.orcfloRun.updateMany({
+      where: { id, claimedBy: workerId },
+      data: { claimedBy: null, claimedUntil: null, updatedAt: new Date() },
+    });
+  }
   async findByIdempotencyKey(tenantId: string, idempotencyKey: string) {
     const row = await this.prisma.orcfloRun.findFirst({ where: { tenantId, idempotencyKey } });
     return row ? mapOrcfloRun(row) : null;
@@ -556,6 +593,8 @@ export class PrismaOrcfloRunRepository implements OrcfloRunRepository {
       environment: value.environment,
       limits: value.limits === undefined ? undefined : json(value.limits),
       approval: value.approval === undefined ? undefined : json(value.approval),
+      claimedBy: value.claimedBy,
+      claimedUntil: value.claimedUntil,
       startedAt: value.startedAt,
       completedAt: value.completedAt,
       createdAt: value.createdAt,
