@@ -222,3 +222,19 @@ Added the frontend route-by-route implementation map (documentation only):
 - **`docs/CODE_AGENT_MASTER_PROMPT.md` §68** — the Route Completion Contract: a route is complete only when route ownership, domain ownership, source of truth, data contract, loading/empty/error/permission/success states, mutation behavior, backend integration, mobile, accessibility, tests, and runtime verification all exist; the frontend must never fabricate backend state (mock data only in explicit demo/mock mode).
 
 `docs/DEVELOPMENT_SPEC.md` and `docs/ARCHITECTURE.md` §5 now index/link the route spec. Verified: fence balance; section integrity (master prompt now 00–68); markdown only, no code impact.
+
+## 23. Follow-up increment — Route Architecture Wave 1 (core product surfaces)
+
+Implemented the first build wave of `docs/ROUTE_ARCHITECTURE_SPEC.md` §41 as real surfaces over the existing domain APIs, per the Route Completion Contract (master prompt §68):
+
+- **`GET /api/v1/workflows/:workflowId`** — the Workflow Domain read API the detail page consumes (tenant-scoped, `workflow:read`); new route-level tests.
+- **`/app/dashboard`** — Mission Control (spec §17): real counts from the domain APIs (workflows, runs, metering summary), pending approvals derived from runs in WAITING_APPROVAL, recent-run table, failures list, quick-create. Loading / error+retry / empty states.
+- **`/app/workflows`** — workflow library (spec §18): canonical workflow list with status filters (READY/DRAFT/PAUSED/ARCHIVED), search, row → detail.
+- **`/app/workflows/new`** — creation surface (spec §19): FROM SCRATCH (creates a real DRAFT workflow), FROM BLUEPRINT (instantiates a real blueprint, with parameter form), DESCRIBE GOAL (honest target state — natural-language generation is not wired; the panel says so and offers the working paths; no fabricated generation).
+- **`/app/workflows/[workflowId]`** — workflow detail: canonical definition (GET by id), node inventory, version/status, run history from the Execution Kernel, Run + Publish mutations through the domain APIs, Studio link.
+- **`/app/runs`** — execution history (spec §26): runs list with status filters → observatory.
+- **`/app/runs/[executionId]`** — Execution Observatory (spec §27): run aggregate, ordered steps timeline (status/cost/iteration/cache), inputs + outcome, replayable event stream, persisted decision records, failure output, and a resumable-approval panel that surfaces the permission state honestly (demo BUILDER identity → "requires APPROVER" notice) instead of faking a decision.
+
+Shared infra: `components/AppShell` (top bar over scrolling main), `components/client-api` (stable error envelope), `components/app-format` (pure, unit-tested formatting helpers), and a Wave-1 CSS block in `app/globals.css` (KPI grid, tables, states, creation modes, observatory layout, mobile breakpoint).
+
+Verified: lint + strict typecheck + 254 tests (8 new: 3 workflow-detail route tests incl. tenant isolation + 5 formatting-helper tests) + optimized build with all 6 new routes + live HTTP smoke (every page 200; seeded workflow → async run COMPLETED → detail + observatory render, decision record `router → {route:"a"}` served). Client pages render the shell + loading state server-side and hydrate real data client-side, per the Route Completion Contract.
