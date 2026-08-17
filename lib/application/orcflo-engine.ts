@@ -30,6 +30,7 @@ import type {
   OrcfloRuntimePorts,
 } from './ports';
 import type { BoundedAgentRuntime } from './agent-runtime';
+import type { RunEventBus } from './run-event-bus';
 import { WorkflowSchema, type Workflow, type WorkflowEdge, type WorkflowNode } from '../domain/schemas';
 
 const wallClock: Clock = {
@@ -116,12 +117,30 @@ export class OrcfloEngine {
        * no second agent implementation ever runs inside the engine.
        */
       agentRuntime?: BoundedAgentRuntime;
+      /**
+       * §11/§36 — in-process live run stream. When present, every appended
+       * run event is also published here so SSE subscribers receive live
+       * events without polling. Single-process semantics; a NATS-backed
+       * bus replaces it in multi-instance deployments.
+       */
+      runEventBus?: RunEventBus;
     } = {},
   ) {
     this.baseHandlers = new Map(handlers);
   }
 
   async startRun(request: StartRunRequest): Promise<OrcfloRun> {
+    const run = await this.createRun(request);
+    return this.executeRun(run.id);
+  }
+
+  /**
+   * §25/§36 durable execution — create a PENDING run without executing it.
+   * The caller context and execution bounds are captured on the run so a
+   * background worker (RunDispatcher) can execute it later with the exact
+   * same policy / metering / event surface.
+   */
+  async createRun(request: StartRunRequest): Promise<OrcfloRun> {
     const { context } = request;
     if (!roleAllows(context.role, 'workflow:execute')) {
       throw new PlatformError('AUTHORIZATION_DENIED', `Role ${context.role} cannot execute workflows.`);
@@ -164,26 +183,30 @@ export class OrcfloEngine {
         return existing;
       }
     }
-    const maxDurationMs = Math.min(request.maxDurationMs ?? 30_000, 120_000);
-    const maxCostMinor = Math.min(request.maxCostMinor ?? 100_000, 100_000_000);
-    const startedMs = this.clock.now();
-    const startedAt = this.clock.isoNow();
-
-    let run = OrcfloRunSchema.parse({
+    const now = this.clock.isoNow();
+    const run = OrcfloRunSchema.parse({
       id: createId('run'),
       tenantId: context.tenantId,
       workflowId: workflow.id,
       blueprintId: request.blueprintId,
       triggerId: request.triggerId,
       triggerKind: request.triggerKind,
-      status: 'RUNNING',
+      status: 'PENDING',
       input: request.input ?? {},
       steps: [],
       correlationId: context.correlationId,
       idempotencyKey: request.idempotencyKey === '' ? undefined : request.idempotencyKey,
-      startedAt,
-      createdAt: startedAt,
-      updatedAt: startedAt,
+      actorId: context.actorId,
+      role: context.role,
+      environment: context.environment,
+      limits: {
+        maxDurationMs: request.maxDurationMs === undefined ? undefined : Math.max(100, Math.min(request.maxDurationMs, 120_000)),
+        maxCostMinor: request.maxCostMinor === undefined ? undefined : Math.max(0, Math.min(request.maxCostMinor, 100_000_000)),
+        maxNodeExecutions: request.maxNodeExecutions === undefined ? undefined : Math.max(1, Math.min(Math.trunc(request.maxNodeExecutions), 10_000)),
+        maxConcurrency: request.maxConcurrency === undefined ? undefined : Math.max(1, Math.min(Math.trunc(request.maxConcurrency), 32)),
+      },
+      createdAt: now,
+      updatedAt: now,
     });
     try {
       await this.ports.runs.save(run);
@@ -196,14 +219,90 @@ export class OrcfloEngine {
       }
       throw error;
     }
-    let sequence = 1;
-    await this.emit(run, 'run.started', { workflowId: workflow.id, workflowVersion: workflow.version }, sequence);
-    await this.meter(context, { metric: 'run.count', unit: 'count', amount: 1, run, workflow });
-    await this.publishDomainEvent('orcflo.run.started', run, workflow, {}, context);
+    return run;
+  }
+
+  /**
+   * §25/§36/§49 durable execution — execute (or resume) a run:
+   *
+   *   PENDING → RUNNING → terminal
+   *   WAITING_APPROVAL + approval.APPROVED → resume from the approval node
+   *   WAITING_APPROVAL + approval.REJECTED → CANCELLED (at decision time)
+   *
+   * Terminal runs are returned as-is, so a worker may safely re-tick over
+   * the same PENDING list without duplicating work. Runs already RUNNING
+   * are left to the worker that owns them (single-process semantics in
+   * this increment; multi-worker claim/lease is future work).
+   */
+  async executeRun(runId: string): Promise<OrcfloRun> {
+    const stored = await this.ports.runs.findByIdGlobal(runId);
+    if (!stored) throw new PlatformError('NOT_FOUND', `Run ${runId} was not found.`);
+    if (stored.status === 'COMPLETED' || stored.status === 'FAILED' || stored.status === 'CANCELLED') {
+      return stored;
+    }
+    if (stored.status === 'RUNNING') return stored;
+
+    const resume = stored.status === 'WAITING_APPROVAL' && stored.approval?.decision === 'APPROVED';
+    if (stored.status === 'WAITING_APPROVAL' && !resume) return stored; // paused, no decision yet
+
+    const storedWorkflow = await this.ports.workflows.findById(stored.tenantId, stored.workflowId);
+    if (!storedWorkflow) throw new PlatformError('NOT_FOUND', `Workflow ${stored.workflowId} was not found.`);
+    const workflow = WorkflowSchema.parse(storedWorkflow);
+    const context: ActorContext = {
+      tenantId: stored.tenantId,
+      actorId: stored.actorId ?? 'actor_worker',
+      role: stored.role ?? 'OPERATOR',
+      correlationId: stored.correlationId,
+      environment: stored.environment ?? 'demo',
+    };
+    const maxDurationMs = Math.min(stored.limits?.maxDurationMs ?? 30_000, 120_000);
+    const maxCostMinor = Math.min(stored.limits?.maxCostMinor ?? 100_000, 100_000_000);
+    const maxNodeExecutions = Math.max(1, Math.min(Math.trunc(stored.limits?.maxNodeExecutions ?? 1000), 10_000));
+    const maxConcurrency = Math.max(1, Math.min(Math.trunc(stored.limits?.maxConcurrency ?? 4), 32));
+    // The resumed phase gets a fresh deadline window so an approval pause
+    // does not consume the run's execution budget; total wall time is
+    // still reported from the original startedAt.
+    const startedMs = this.clock.now();
+    const startedAt = stored.startedAt ?? this.clock.isoNow();
+
+    let run = resume
+      ? stored
+      : OrcfloRunSchema.parse({ ...stored, status: 'RUNNING', startedAt, updatedAt: this.clock.isoNow() });
+    let sequence = (await this.ports.runEvents.listForRun(stored.tenantId, run.id))
+      .reduce((max, event) => Math.max(max, event.sequence), 0);
+    if (resume) {
+      // Replace the WAITING_APPROVAL step with a COMPLETED (approved) step
+      // so run history shows the decision and the resume seed below can
+      // treat the approval node as executed.
+      const approvalStep = run.steps.find((step) => step.status === 'WAITING_APPROVAL');
+      if (!approvalStep) {
+        throw new PlatformError(
+          'WORKFLOW_ERROR',
+          `Run ${run.id} is WAITING_APPROVAL but has no approval step to resume from.`,
+        );
+      }
+      const replaced = run.steps.map((step) => (
+        step === approvalStep
+          ? this.stepResult(approvalStep.nodeId, 'COMPLETED', {
+              approved: true,
+              decidedBy: run.approval?.decidedBy,
+              reason: run.approval?.reason,
+            }, approvalStep.startedAt, { iteration: approvalStep.iteration })
+          : step
+      ));
+      run = await this.updateRun(run, { steps: replaced });
+      await this.emit(run, 'run.resumed', { workflowId: workflow.id, workflowVersion: workflow.version }, ++sequence);
+    } else {
+      await this.ports.runs.save(run);
+      await this.emit(run, 'run.started', { workflowId: workflow.id, workflowVersion: workflow.version }, ++sequence);
+      await this.meter(context, { metric: 'run.count', unit: 'count', amount: 1, run, workflow });
+      await this.publishDomainEvent('orcflo.run.started', run, workflow, {}, context);
+    }
 
     const evidence: ExecutionEvidence[] = [];
     const outputs: Record<string, unknown> = {};
     let spentMinor = 0;
+    let evidenceCountTotal = 0;
     let inFlightNodeId: string | undefined;
     try {
       const runHandlers = new Map<WorkflowNode['type'], WorkflowNodeHandler>(this.baseHandlers);
@@ -240,12 +339,19 @@ export class OrcfloEngine {
         loopItem?: { item: unknown; index: number; iteration: number };
       };
       const keyOf = (act: Activation): string => `${act.nodeId}::${act.iteration}`;
-      const pending: Activation[] = entryOrder.map((nodeId) => ({ nodeId, iteration: 0 }));
+      let pending: Activation[] = entryOrder.map((nodeId) => ({ nodeId, iteration: 0 }));
       const executedKeys = new Set<string>();
       const executedNodeIds = new Set<string>();
       const loopState = new Map<string, { items: unknown[]; index: number; iteration: number }>();
-      const maxNodeExecutions = Math.max(1, Math.min(Math.trunc(request.maxNodeExecutions ?? 1000), 10_000));
-      const maxConcurrency = Math.max(1, Math.min(Math.trunc(request.maxConcurrency ?? 4), 32));
+      if (resume) {
+        const seed = this.buildResumeSeed(run, nodeById, incoming);
+        Object.assign(outputs, seed.outputs);
+        for (const key of seed.executedKeys) executedKeys.add(key);
+        for (const id of seed.executedNodeIds) executedNodeIds.add(id);
+        spentMinor = seed.spentMinor;
+        evidenceCountTotal = seed.evidenceCountTotal;
+        pending = seed.pending;
+      }
       const topoIndex = new Map(topo.map((node, index) => [node.id, index]));
       const isControlType = (type: WorkflowNode['type']): boolean =>
         type === 'for_each' || type === 'condition' || type === 'router';
@@ -338,7 +444,7 @@ export class OrcfloEngine {
               firedEdges = (outgoing.get(node.id) ?? []).filter((edge) => edge.loop !== true && edge.loopExit !== true);
               loopItem = { item, index: iteration, iteration };
             }
-            step = this.stepResult(node.id, 'COMPLETED', nodeOutput, stepStartedAt);
+            step = this.stepResult(node.id, 'COMPLETED', nodeOutput, stepStartedAt, { iteration: act.iteration });
             evidence.push({
               type: 'internal_trace',
               summary: `for_each node ${node.id} emitted ${String((nodeOutput as Record<string, unknown>).done)} at iteration ${String((nodeOutput as Record<string, unknown>).iteration ?? 'final')}.`,
@@ -351,7 +457,7 @@ export class OrcfloEngine {
             firedEdges = (outgoing.get(node.id) ?? []).filter(
               (edge) => edge.loop === true || edgeGuardFires(edge, output),
             );
-            step = this.stepResult(node.id, 'COMPLETED', output, stepStartedAt);
+            step = this.stepResult(node.id, 'COMPLETED', output, stepStartedAt, { iteration: act.loopItem?.iteration ?? act.iteration });
             evidence.push({
               type: 'internal_trace',
               summary: `condition node ${node.id} evaluated ${String(node.configuration.path)} -> ${String(output.result)}.`,
@@ -368,7 +474,7 @@ export class OrcfloEngine {
                 `Router node ${node.id} selected route "${output.route}" but no outgoing edge carries that sourceHandle.`,
               );
             }
-            step = this.stepResult(node.id, 'COMPLETED', output, stepStartedAt);
+            step = this.stepResult(node.id, 'COMPLETED', output, stepStartedAt, { iteration: act.loopItem?.iteration ?? act.iteration });
             evidence.push({
               type: 'internal_trace',
               summary: `router node ${node.id} selected route ${output.route}.`,
@@ -407,7 +513,9 @@ export class OrcfloEngine {
             throw new PlatformError('AUTHORIZATION_DENIED', decision.reason);
           }
           if (decision.outcome === 'require_approval') {
-            const step = this.stepResult(node.id, 'WAITING_APPROVAL', { reason: decision.reason });
+            const step = this.stepResult(node.id, 'WAITING_APPROVAL', { reason: decision.reason }, undefined, {
+              iteration: act.loopItem?.iteration ?? act.iteration,
+            });
             run = await this.updateRun(run, { status: 'WAITING_APPROVAL', steps: [...run.steps, step] });
             await this.emit(run, 'step.started', { nodeId: node.id, nodeType: node.type, reason: decision.reason }, ++sequence);
             await this.publishDomainEvent('orcflo.run.approval_requested', run, workflow, {
@@ -451,7 +559,11 @@ export class OrcfloEngine {
                   cached: true as const,
                   cacheKey,
                   nodeOutput: entry.output,
-                  step: this.stepResult(p.node.id, 'CACHED', entry.output, p.stepStartedAt, { cacheKey, cacheHit: true }),
+                  step: this.stepResult(p.node.id, 'CACHED', entry.output, p.stepStartedAt, {
+                    cacheKey,
+                    cacheHit: true,
+                    iteration: p.act.loopItem?.iteration ?? p.act.iteration,
+                  }),
                   firedEdges: this.firedEdgesFor(p.node, entry.output, outgoing),
                   costMinor: 0,
                   evidenceAdded: [] as ExecutionEvidence[],
@@ -476,6 +588,7 @@ export class OrcfloEngine {
                 cacheKey,
                 costMinor: resultCost,
                 evidenceCount: result.evidence.length,
+                iteration: p.act.loopItem?.iteration ?? p.act.iteration,
               }),
               firedEdges: this.firedEdgesFor(p.node, result.output, outgoing),
               costMinor: resultCost,
@@ -546,8 +659,12 @@ export class OrcfloEngine {
       }
 
       // Record SKIPPED steps for nodes in untaken branches (run history).
+      // The hasStepNodeIds guard prevents re-recording on resume, where the
+      // persisted steps already contain SKIPPED entries for earlier passes.
+      const hasStepNodeIds = new Set(run.steps.map((step) => step.nodeId));
       for (const node of topo) {
         if (executedNodeIds.has(node.id)) continue;
+        if (hasStepNodeIds.has(node.id)) continue;
         if ((incoming.get(node.id) ?? []).length === 0) continue;
         run = await this.updateRun(run, {
           steps: [...run.steps, this.stepResult(node.id, 'SKIPPED', {
@@ -556,26 +673,27 @@ export class OrcfloEngine {
         });
       }
 
-      if (evidence.length === 0) {
+      if (evidence.length === 0 && evidenceCountTotal === 0) {
         throw new PlatformError('WORKFLOW_ERROR', 'Run produced no observable completion evidence.');
       }
       const completedAt = this.clock.isoNow();
+      const totalEvidence = evidenceCountTotal + evidence.length;
       run = await this.updateRun(run, {
         status: 'COMPLETED',
-        output: { spentMinor, evidenceCount: evidence.length, stepCount: run.steps.length },
+        output: { spentMinor, evidenceCount: totalEvidence, stepCount: run.steps.length },
         completedAt,
       });
-      await this.emit(run, 'run.completed', { spentMinor, evidenceCount: evidence.length }, ++sequence);
+      await this.emit(run, 'run.completed', { spentMinor, evidenceCount: totalEvidence }, ++sequence);
       await this.meter(context, {
         metric: 'run.duration_ms',
         unit: 'ms',
-        amount: Math.max(0, this.clock.now() - startedMs),
+        amount: Math.max(0, this.clock.now() - Date.parse(startedAt ?? this.clock.isoNow())),
         run,
         workflow,
       });
       await this.publishDomainEvent('orcflo.run.completed', run, workflow, {
         spentMinor,
-        evidenceCount: evidence.length,
+        evidenceCount: totalEvidence,
       }, context);
       return run;
     } catch (error) {
@@ -616,6 +734,144 @@ export class OrcfloEngine {
   async listRunEvents(context: ActorContext, runId: string): Promise<import('../domain/orcflo').OrcfloRunEvent[]> {
     this.assertRead(context);
     return this.ports.runEvents.listForRun(context.tenantId, runId);
+  }
+
+  // --- Resumable approval (§49) ---
+
+  /**
+   * Decide a run paused at WAITING_APPROVAL. APPROVED persists the
+   * decision and resumes execution from the approval node; REJECTED
+   * cancels the run. The decision is persisted system state — never a
+   * frontend-only boolean.
+   */
+  async decideApproval(
+    context: ActorContext,
+    runId: string,
+    decision: 'APPROVED' | 'REJECTED',
+    reason?: string,
+  ): Promise<OrcfloRun> {
+    const run = await this.ports.runs.findById(context.tenantId, runId);
+    if (!run) throw new PlatformError('NOT_FOUND', `Run ${runId} was not found.`);
+    if (run.status !== 'WAITING_APPROVAL') {
+      throw new PlatformError('CONFLICT', `Run ${runId} is not waiting for approval (status ${run.status}).`);
+    }
+    if (run.approval) {
+      throw new PlatformError('CONFLICT', `Run ${runId} already has an approval decision.`);
+    }
+    if (!roleAllows(context.role, 'approval:decide')) {
+      throw new PlatformError('AUTHORIZATION_DENIED', `Role ${context.role} cannot decide approvals.`);
+    }
+    const now = this.clock.isoNow();
+    const decided = OrcfloRunSchema.parse({
+      ...run,
+      approval: { decision, decidedBy: context.actorId, reason, decidedAt: now },
+      updatedAt: now,
+    });
+    await this.ports.runs.save(decided);
+    if (decision === 'REJECTED') {
+      const cancelled = OrcfloRunSchema.parse({ ...decided, status: 'CANCELLED', completedAt: now, updatedAt: now });
+      await this.ports.runs.save(cancelled);
+      const workflow = await this.ports.workflows.findById(context.tenantId, cancelled.workflowId);
+      let sequence = (await this.ports.runEvents.listForRun(cancelled.tenantId, cancelled.id))
+        .reduce((max, event) => Math.max(max, event.sequence), 0);
+      await this.emit(cancelled, 'run.cancelled', { reason: reason ?? 'Rejected by human.' }, ++sequence);
+      if (workflow) {
+        await this.publishDomainEvent('orcflo.run.cancelled', cancelled, workflow, {
+          reason: reason ?? 'Rejected by human.',
+        }, context);
+      }
+      return cancelled;
+    }
+    return this.executeRun(runId);
+  }
+
+  /**
+   * §49 resume seeding — rebuild execution state from the persisted steps
+   * of a WAITING_APPROVAL run so execution continues past the approval
+   * node without re-running completed work:
+   *
+   *   - outputs / executedKeys / executedNodeIds from COMPLETED+CACHED steps
+   *   - spentMinor and evidenceCountTotal from step metadata
+   *   - a ready-set of unexecuted nodes whose every non-loop incoming edge
+   *     is satisfied by the persisted outputs (edge conditions honored:
+   *     condition result, router route, loopExit)
+   *
+   * Resuming inside an active for_each loop is rejected with a clear
+   * error until loop checkpoints exist.
+   */
+  private buildResumeSeed(
+    run: OrcfloRun,
+    nodeById: Map<string, WorkflowNode>,
+    incoming: Map<string, WorkflowEdge[]>,
+  ): {
+    outputs: Record<string, unknown>;
+    executedKeys: Set<string>;
+    executedNodeIds: Set<string>;
+    spentMinor: number;
+    evidenceCountTotal: number;
+    pending: Array<{ nodeId: string; iteration: number; loopItem?: { item: unknown; index: number; iteration: number } }>;
+  } {
+    const outputs: Record<string, unknown> = {};
+    const executedKeys = new Set<string>();
+    const executedNodeIds = new Set<string>();
+    let spentMinor = 0;
+    let evidenceCountTotal = 0;
+    for (const step of run.steps) {
+      if (step.status === 'COMPLETED' || step.status === 'CACHED') {
+        executedKeys.add(`${step.nodeId}::${step.iteration}`);
+        executedNodeIds.add(step.nodeId);
+        if (step.output !== undefined) outputs[step.nodeId] = step.output;
+        spentMinor += step.costMinor;
+        evidenceCountTotal += step.evidenceCount;
+      }
+    }
+    // Active-loop guard: a for_each head still mid-iteration cannot be
+    // resumed without a persisted checkpoint.
+    for (const node of nodeById.values()) {
+      if (node.type !== 'for_each') continue;
+      const lastEmitted = [...run.steps]
+        .reverse()
+        .find((step) => step.nodeId === node.id && step.status === 'COMPLETED'
+          && (step.output as { done?: boolean } | undefined)?.done === false);
+      if (lastEmitted) {
+        throw new PlatformError(
+          'WORKFLOW_ERROR',
+          `Resuming a run paused inside an active for_each loop (node ${node.id}) is not yet supported.`,
+        );
+      }
+    }
+    // Ready-set: unexecuted nodes whose every non-loop incoming edge is
+    // satisfied by the persisted outputs.
+    const pending: Array<{ nodeId: string; iteration: number }> = [];
+    for (const node of nodeById.values()) {
+      if (executedNodeIds.has(node.id)) continue;
+      const ins = (incoming.get(node.id) ?? []).filter((edge) => edge.loop !== true);
+      if (ins.length === 0) {
+        pending.push({ nodeId: node.id, iteration: 0 });
+        continue;
+      }
+      let satisfied = 0;
+      let blocked = false;
+      for (const edge of ins) {
+        if (!executedNodeIds.has(edge.source)) {
+          blocked = true;
+          break;
+        }
+        const sourceOutput = outputs[edge.source];
+        const sourceType = nodeById.get(edge.source)?.type;
+        if (sourceType === 'router') {
+          if (edge.sourceHandle === (sourceOutput as { route?: string } | undefined)?.route) satisfied += 1;
+          else { blocked = true; break; }
+        } else if (edgeGuardFires(edge, sourceOutput)) {
+          satisfied += 1;
+        } else {
+          blocked = true;
+          break;
+        }
+      }
+      if (!blocked && satisfied > 0) pending.push({ nodeId: node.id, iteration: 0 });
+    }
+    return { outputs, executedKeys, executedNodeIds, spentMinor, evidenceCountTotal, pending };
   }
 
   // --- Model providers ---
@@ -1000,6 +1256,7 @@ export class OrcfloEngine {
       costMinor: 0,
       evidenceCount: 0,
       modelCalls: 0,
+      iteration: 0,
       ...extras,
     };
   }
@@ -1047,6 +1304,7 @@ export class OrcfloEngine {
       occurredAt: this.clock.isoNow(),
     });
     await this.ports.runEvents.append(event);
+    this.options.runEventBus?.publish(event);
   }
 
   private async meter(

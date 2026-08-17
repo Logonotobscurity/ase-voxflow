@@ -489,6 +489,10 @@ export class InMemoryOrcfloRunRepository implements OrcfloRunRepository {
     const value = this.store.state.orcfloRuns.get(id);
     return value?.tenantId === tenantId ? copy(value) : null;
   }
+  async findByIdGlobal(id: string) {
+    const value = this.store.state.orcfloRuns.get(id);
+    return value ? copy(value) : null;
+  }
   async findByIdempotencyKey(tenantId: string, idempotencyKey: string) {
     const value = [...this.store.state.orcfloRuns.values()]
       .find((run) => run.tenantId === tenantId && run.idempotencyKey === idempotencyKey);
@@ -523,6 +527,14 @@ export class InMemoryOrcfloRunRepository implements OrcfloRunRepository {
     return [...this.store.state.orcfloRuns.values()]
       .filter((run) => run.tenantId === tenantId && run.triggerId === triggerId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
+  async listPending(limit = 50) {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+    return [...this.store.state.orcfloRuns.values()]
+      .filter((run) => run.status === 'PENDING')
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .slice(0, safeLimit)
       .map(copy);
   }
@@ -637,6 +649,17 @@ export class InMemoryOrcfloTriggerRepository implements OrcfloTriggerRepository 
         && (options.enabledOnly !== true || trigger.enabled)
       ))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map(copy);
+  }
+  async listAll(options: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean; limit?: number } = {}) {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(options.limit ?? 1_000), 10_000));
+    return [...this.store.state.orcfloTriggers.values()]
+      .filter((trigger) => (
+        (options.kind === undefined || trigger.kind === options.kind)
+        && (options.enabledOnly !== true || trigger.enabled)
+      ))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(0, safeLimit)
       .map(copy);
   }
 }

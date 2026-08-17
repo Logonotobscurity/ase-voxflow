@@ -67,6 +67,7 @@ The full dated log with evidence is `docs/ARCHITECTURE.md` §5. The stable decis
 | ADR-014 | **Parallel execution:** independent nodes execute concurrently up to `maxConcurrency` (default 4) with deterministic topological step/event ordering; control nodes stay sequential. | Accepted 2026-08-16 |
 | ADR-015 | **Run idempotency:** `OrcfloRun.idempotencyKey` unique per tenant; duplicate webhook/event deliveries and API retries replay the existing run; webhook/event triggers derive keys from trigger + payload. | Accepted 2026-08-16 |
 | ADR-016 | **Public interfaces:** a `public` trigger kind exposes a READY workflow anonymously with input-schema validation, per-interface rate/daily/cost limits, idempotency, and a synthetic execute-only `PUBLIC` role that is never a membership role and cannot bypass tenant policy gates. | Accepted 2026-08-16 |
+| ADR-017 | **Durable execution:** runs can be created PENDING and executed by an in-process worker (`createRun`/`executeRun`, `RunDispatcher`) with the caller context + limits captured on the run; approval decisions are persisted on the run and `APPROVED` resumes execution from the approval node while `REJECTED` cancels; the run stream is live via an in-process `RunEventBus`; schedule triggers drain cross-tenant via a `ScheduleDispatcher`. Single-process semantics; multi-worker claim/lease and a NATS-backed bus are future work. | Accepted 2026-08-16 |
 
 ## Standing constraints (not open for renegotiation in ordinary work)
 

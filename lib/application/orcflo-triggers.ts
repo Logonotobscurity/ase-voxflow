@@ -156,6 +156,32 @@ export class OrcfloTriggerService {
   }
 
   /**
+   * §32/§25 durable scheduling — cross-tenant drain for the schedule
+   * worker. Iterates every enabled schedule trigger in the platform and
+   * fires each due minute bucket with a system worker context; the same
+   * at-most-once-per-bucket guarantee applies via lastFiredAt.
+   */
+  async drainSchedulesGlobal(nowIso = this.clock.isoNow(), limit = 50): Promise<OrcfloRun[]> {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
+    const triggers = await this.ports.triggers.listAll({ kind: 'schedule', enabledOnly: true });
+    const runs: OrcfloRun[] = [];
+    for (const trigger of triggers) {
+      if (runs.length >= safeLimit) break;
+      const config = ScheduleTriggerConfigSchema.parse(trigger.config);
+      if (!isDueCron(config.cron, nowIso, trigger.lastFiredAt, config.timezone)) continue;
+      const context: ActorContext = {
+        tenantId: trigger.tenantId,
+        actorId: 'actor_scheduler',
+        role: 'OPERATOR',
+        correlationId: createId('corr'),
+        environment: 'demo',
+      };
+      runs.push(await this.fire(trigger, { scheduledAt: nowIso }, context, nowIso));
+    }
+    return runs;
+  }
+
+  /**
    * Materialize runs for every enabled `event` trigger matching
    * `eventType` (§48 idempotency). A caller-supplied key wins; otherwise
    * each run derives a key from (trigger, eventType, payload) so a

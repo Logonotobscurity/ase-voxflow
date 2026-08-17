@@ -54,6 +54,8 @@ export const OrcfloStepResultSchema = z.object({
   /** Content hash of the step input; present for cacheable steps. */
   cacheKey: z.string().min(8).max(128).optional(),
   cacheHit: z.boolean().default(false),
+  /** Loop iteration scope (0 outside loops); persisted so resumed runs and history stay faithful. */
+  iteration: z.number().int().nonnegative().default(0),
   output: z.unknown().optional(),
   costMinor: z.number().int().nonnegative().default(0),
   evidenceCount: z.number().int().nonnegative().default(0),
@@ -86,6 +88,31 @@ export const OrcfloRunSchema = z.object({
    * automatically.
    */
   idempotencyKey: z.string().trim().min(8).max(200).optional(),
+  /**
+   * Durable execution — the caller context captured at creation so a
+   * background worker can reconstruct the exact ActorContext when the
+   * run later executes (policy, metering, events, resume).
+   */
+  actorId: IdSchema.optional(),
+  role: z.enum(['ADMIN', 'BUILDER', 'OPERATOR', 'APPROVER', 'VIEWER', 'PUBLIC']).optional(),
+  environment: z.enum(['demo', 'development', 'staging', 'production']).optional(),
+  /** Execution bounds captured at creation for the worker to enforce. */
+  limits: z.object({
+    maxDurationMs: z.number().int().min(100).max(120_000).optional(),
+    maxCostMinor: z.number().int().nonnegative().max(100_000_000).optional(),
+    maxNodeExecutions: z.number().int().min(1).max(10_000).optional(),
+    maxConcurrency: z.number().int().min(1).max(32).optional(),
+  }).strict().optional(),
+  /**
+   * §49 resumable approval — the human decision for a run paused at
+   * WAITING_APPROVAL. APPROVED triggers a resume; REJECTED cancels.
+   */
+  approval: z.object({
+    decision: z.enum(['APPROVED', 'REJECTED']),
+    decidedBy: IdSchema.optional(),
+    reason: z.string().max(2_000).optional(),
+    decidedAt: DateTimeSchema,
+  }).strict().optional(),
   startedAt: DateTimeSchema.optional(),
   completedAt: DateTimeSchema.optional(),
   createdAt: DateTimeSchema,
@@ -97,6 +124,7 @@ export type OrcfloRun = z.infer<typeof OrcfloRunSchema>;
 
 export const OrcfloRunEventTypeSchema = z.enum([
   'run.started',
+  'run.resumed',
   'run.completed',
   'run.failed',
   'run.cancelled',

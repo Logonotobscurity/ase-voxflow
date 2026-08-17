@@ -23,6 +23,7 @@ let deleteWorkflowTool: typeof import('../app/api/v1/orcflo/workflows/[workflowI
 let postInterfaces: typeof import('../app/api/v1/orcflo/interfaces/route').POST;
 let getInterfaces: typeof import('../app/api/v1/orcflo/interfaces/route').GET;
 let postInterfaceRun: typeof import('../app/api/v1/orcflo/interfaces/[slug]/run/route').POST;
+let postApproval: typeof import('../app/api/v1/orcflo/runs/[runId]/approval/route').POST;
 
 beforeAll(async () => {
   process.env.ASE_RUNTIME_MODE = 'demo';
@@ -43,6 +44,7 @@ beforeAll(async () => {
   ({ GET: getWorkflowTool, POST: postWorkflowTool, DELETE: deleteWorkflowTool } = await import('../app/api/v1/orcflo/workflows/[workflowId]/tool/route'));
   ({ POST: postInterfaces, GET: getInterfaces } = await import('../app/api/v1/orcflo/interfaces/route'));
   ({ POST: postInterfaceRun } = await import('../app/api/v1/orcflo/interfaces/[slug]/run/route'));
+  ({ POST: postApproval } = await import('../app/api/v1/orcflo/runs/[runId]/approval/route'));
 
   // Seed a READY workflow and the membership rows the demo identity
   // reconciliation requires.
@@ -50,6 +52,7 @@ beforeAll(async () => {
   const platform = getPlatform();
   await platform.ports.tenantMembers?.upsert({ tenantId: 'tenant_orcflo_routes', actorId: 'actor_route', role: 'BUILDER' });
   await platform.ports.tenantMembers?.upsert({ tenantId: 'tenant_orcflo_routes', actorId: 'actor_viewer', role: 'VIEWER' });
+  await platform.ports.tenantMembers?.upsert({ tenantId: 'tenant_orcflo_routes', actorId: 'actor_approver', role: 'APPROVER' });
   const now = '2026-08-14T09:00:00.000Z';
   await platform.ports.workflows.save({
     id: 'workflow_orcflo_routes',
@@ -70,12 +73,13 @@ beforeAll(async () => {
 });
 
 function request(path: string, body: string, role = 'BUILDER') {
+  const actorForRole = role === 'VIEWER' ? 'actor_viewer' : role === 'APPROVER' ? 'actor_approver' : 'actor_route';
   return new NextRequest(`http://localhost${path}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       'x-ase-tenant-id': 'tenant_orcflo_routes',
-      'x-ase-actor-id': role === 'VIEWER' ? 'actor_viewer' : 'actor_route',
+      'x-ase-actor-id': actorForRole,
       'x-ase-role': role,
     },
     body,
@@ -414,6 +418,77 @@ describe('Orcflo HTTP routes', () => {
     // Management listing is authenticated.
     const listed = await getInterfaces(getRequest('/api/v1/orcflo/interfaces'));
     expect((await listed.json()).data.interfaces.some((i: { config: { slug: string } }) => i.config.slug === 'pub_route_form_0001')).toBe(true);
+  });
+
+  it('starts a run asynchronously (PENDING) and the worker completes it', async () => {
+    const created = await postRuns(request('/api/v1/orcflo/runs', JSON.stringify({
+      workflowId: 'workflow_orcflo_routes',
+      input: { async: true },
+      async: true,
+    })));
+    const createdPayload = await created.json();
+    expect(created.status).toBe(202);
+    expect(createdPayload.data.queued).toBe(true);
+    expect(createdPayload.data.run.status).toBe('PENDING');
+
+    // Drive the in-process run worker deterministically.
+    const { getPlatform } = await import('../lib/server/platform');
+    await getPlatform().runDispatcher.tick();
+
+    const byId = await getRunById(getRequest('/api/v1/orcflo/runs/x'), { params: Promise.resolve({ runId: createdPayload.data.run.id }) });
+    const byIdPayload = await byId.json();
+    expect(byIdPayload.data.run.status).toBe('COMPLETED');
+  });
+
+  it('pauses at approval, then APPROVED resumes and REJECTED cancels via the approval route', async () => {
+    const saved = await postWorkflows(request('/api/v1/workflows', JSON.stringify({
+      name: 'Approval smoke',
+      description: 'human approval',
+      status: 'READY',
+      nodes: [
+        { id: 'start', type: 'trigger', label: 'Start', configuration: { executionMode: 'demo' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+        { id: 'approve', type: 'human_approval', label: 'Approve', configuration: {}, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+        { id: 'after', type: 'action', label: 'After', configuration: { executionMode: 'demo' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'approve', metadata: {} },
+        { id: 'e2', source: 'approve', target: 'after', metadata: {} },
+      ],
+    }), 'BUILDER'));
+    const workflowId = (await saved.json()).data.workflow.id;
+
+    const started = await postRuns(request('/api/v1/orcflo/runs', JSON.stringify({ workflowId })));
+    const startedPayload = await started.json();
+    expect(startedPayload.data.run.status).toBe('WAITING_APPROVAL');
+    const runId = startedPayload.data.run.id;
+
+    // APPROVER decides: reject first.
+    const rejected = await postApproval(request(`/api/v1/orcflo/runs/${runId}/approval`, JSON.stringify({
+      decision: 'REJECTED',
+      reason: 'Not now',
+    }), 'APPROVER'), { params: Promise.resolve({ runId }) });
+    const rejectedPayload = await rejected.json();
+    expect(rejected.status).toBe(200);
+    expect(rejectedPayload.data.run.status).toBe('CANCELLED');
+
+    // Fresh run, approve it.
+    const started2 = await postRuns(request('/api/v1/orcflo/runs', JSON.stringify({ workflowId })));
+    const runId2 = (await started2.json()).data.run.id;
+    const approved = await postApproval(request(`/api/v1/orcflo/runs/${runId2}/approval`, JSON.stringify({
+      decision: 'APPROVED',
+    }), 'APPROVER'), { params: Promise.resolve({ runId: runId2 }) });
+    const approvedPayload = await approved.json();
+    expect(approvedPayload.data.run.status).toBe('COMPLETED');
+    const byNode = new Map(approvedPayload.data.run.steps.map((step: { nodeId: string; status: string }) => [step.nodeId, step.status]));
+    expect(byNode.get('after')).toBe('COMPLETED');
+
+    // A BUILDER (no approval:decide) is denied.
+    const started3 = await postRuns(request('/api/v1/orcflo/runs', JSON.stringify({ workflowId })));
+    const runId3 = (await started3.json()).data.run.id;
+    const denied = await postApproval(request(`/api/v1/orcflo/runs/${runId3}/approval`, JSON.stringify({
+      decision: 'APPROVED',
+    }), 'BUILDER'), { params: Promise.resolve({ runId: runId3 }) });
+    expect(denied.status).toBe(403);
   });
 
   it('registers a workflow as a tool, describes it, and soft-unregisters it', async () => {

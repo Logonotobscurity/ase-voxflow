@@ -357,6 +357,16 @@ model OrcfloRun {
   // §48 idempotency — client/derived key; unique per tenant. NULL rows
   // (runs started without a key) are exempt via the partial unique index.
   idempotencyKey String?
+  // Durable execution — caller context + bounds captured at creation so a
+  // background worker can reconstruct the ActorContext and limits when the
+  // run executes (policy, metering, events, resume).
+  actorId       String?
+  role          String?
+  environment   String?
+  limits        Json?
+  // §49 resumable approval — the human decision for a run paused at
+  // WAITING_APPROVAL (APPROVED triggers a resume; REJECTED cancels).
+  approval      Json?
   startedAt     DateTime?
   completedAt   DateTime?
   createdAt     DateTime @default(now())

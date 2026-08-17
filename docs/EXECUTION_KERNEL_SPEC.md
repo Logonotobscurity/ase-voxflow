@@ -378,7 +378,7 @@ run.completed
 run.failed
 ```
 
-Each event carries a monotonic per-run sequence. The stream is replayable in order and terminates with a run snapshot. Live subscription behind a durable worker is future work; replay is the durable half of the contract today.
+Each event carries a monotonic per-run sequence. The stream is replayable in order and terminates with a run snapshot. Live subscription is implemented via an in-process `RunEventBus` (the engine publishes every event; SSE subscribers replay then tail without polling). A NATS-backed bus replaces it in multi-instance deployments without changing the engine.
 
 # 19. DOMAIN EVENTS
 
@@ -482,7 +482,7 @@ lastFiredAt
 once per minute bucket
 ```
 
-A durable background scheduler with leases, `next_run` and failure policy is future work; the current drain endpoint is the deterministic authority an operator (or future worker) drives.
+A `ScheduleDispatcher` drains due schedules cross-tenant with at-most-once-per-bucket semantics. Multi-instance leases, `next_run` and failure policy remain future work; the deterministic authority is the pure cron matcher.
 
 # 26. APPROVAL
 
@@ -494,7 +494,7 @@ policy-required approvals → WAITING_APPROVAL
 approval is persisted system state, never a frontend-only boolean
 ```
 
-Resumption (approve → continue the paused run) is the open contract item; a waiting run is durable and inspectable today.
+Resumption is implemented: an APPROVED decision resumes execution from the approval node (completed work rebuilt from persisted steps, never re-executed) and a REJECTED decision cancels the run; a waiting run is durable and inspectable throughout.
 
 # 27. BLUEPRINTS
 
@@ -632,7 +632,7 @@ Persist result
 Emit event
 ```
 
-The current reference implementation executes synchronously inside the request (runs are short and bounded). The async boundary is the open contract item that the durable worker increment implements; the run stream and persistence already make it safe to add.
+The reference implementation now supports both modes: `createRun` persists a PENDING run with the caller context + limits captured on it, `executeRun` executes or resumes it, and an in-process `RunDispatcher` drains PENDING runs (idempotent re-ticks). Multi-worker claim/lease and a NATS-backed queue are the documented next step; the run stream and persistence make the boundary safe.
 
 # 37. EXTERNAL ACTIONS
 

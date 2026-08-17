@@ -70,6 +70,7 @@ export function demoNodeHandlers(calls: Array<{ nodeId: string; input: Record<st
 export function buildOrcfloHarness(
   fixedNowIso = '2026-08-14T10:00:00.000Z',
   handlers?: ReadonlyMap<WorkflowNode['type'], WorkflowNodeHandler>,
+  engineOptions: { runEventBus?: import('../lib/application/run-event-bus').RunEventBus } = {},
 ): OrcfloTestHarness {
   const { store, ports, orcflo } = createInMemoryPersistencePorts();
   const runtimePorts: OrcfloRuntimePorts = {
@@ -91,7 +92,7 @@ export function buildOrcfloHarness(
     handlers ?? demoNodeHandlers(handlerCalls),
     new DemoModelProviderGateway(),
     clock,
-    { agentRuntime },
+    { agentRuntime, runEventBus: engineOptions.runEventBus },
   );
   return {
     ports: runtimePorts,

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { OrcfloPublicInterfaceService } from '../lib/application/orcflo-public';
+import type { OrcfloTrigger } from '../lib/domain/orcflo';
 import { roleAllows } from '../lib/domain/policy';
+
+function slugOf(trigger: OrcfloTrigger): string {
+  return trigger.kind === 'public' ? String(trigger.config.slug) : '';
+}
 import {
   buildOrcfloHarness,
   orcfloActorContext,
@@ -29,13 +34,14 @@ describe('Public interfaces (§34) — creation', () => {
     const created = await harness.service.create(orcfloActorContext, {
       workflowId: 'workflow_orcflo',
       name: 'Vendor intake',
-      config: { inputSchema: { name: { type: 'string' } }, rateLimitPerMinute: 5 },
+      config: { inputSchema: { name: { type: 'string', required: true } }, rateLimitPerMinute: 5 },
     });
     expect(created.kind).toBe('public');
-    expect(created.config.slug).toMatch(/^pub_[a-z0-9-]{8,}$/);
-    expect(created.config.rateLimitPerMinute).toBe(5);
-    expect(created.config.maxRunsPerDay).toBe(100);
-    expect(created.config.inputSchema).toMatchObject({ name: { type: 'string', required: true } });
+    const config = created.kind === 'public' ? created.config : undefined;
+    expect(config?.slug).toMatch(/^pub_[a-z0-9-]{8,}$/);
+    expect(config?.rateLimitPerMinute).toBe(5);
+    expect(config?.maxRunsPerDay).toBe(100);
+    expect(config?.inputSchema).toMatchObject({ name: { type: 'string', required: true } });
   });
 
   it('honors an explicit slug and rejects duplicates across the platform', async () => {
@@ -80,7 +86,7 @@ describe('Public interfaces (§34) — anonymous invocation', () => {
   it('runs the workflow anonymously and stamps lastFiredAt', async () => {
     const harness = publicHarness();
     const created = await seedInterface(harness, { inputSchema: { name: { type: 'string' } } });
-    const slug = created.config.slug!;
+    const slug = slugOf(created);
 
     const run = await harness.service.runPublic(slug, { input: { name: 'Ada' } });
     expect(run.status).toBe('COMPLETED');
@@ -97,7 +103,7 @@ describe('Public interfaces (§34) — anonymous invocation', () => {
     const created = await seedInterface(harness, {
       inputSchema: { name: { type: 'string', required: true }, age: { type: 'number', required: false } },
     });
-    const slug = created.config.slug!;
+    const slug = slugOf(created);
 
     await expect(harness.service.runPublic(slug, { input: { age: 'not-a-number' } }))
       .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
@@ -117,7 +123,7 @@ describe('Public interfaces (§34) — anonymous invocation', () => {
     const created = await seedInterface(harness, {
       inputSchema: { region: { type: 'string', required: false, default: 'west' } },
     });
-    const run = await harness.service.runPublic(created.config.slug!, { input: {} });
+    const run = await harness.service.runPublic(slugOf(created), { input: {} });
     expect(run.input).toMatchObject({ region: 'west' });
   });
 
@@ -130,14 +136,14 @@ describe('Public interfaces (§34) — anonymous invocation', () => {
     // Disable it via the trigger repository and confirm the same code.
     const disabled = { ...created, enabled: false };
     await harness.ports.triggers.save(disabled);
-    await expect(harness.service.runPublic(created.config.slug!, { input: {} }))
+    await expect(harness.service.runPublic(slugOf(created), { input: {} }))
       .rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('rate limits per interface per minute', async () => {
     const harness = publicHarness();
     const created = await seedInterface(harness, { rateLimitPerMinute: 2 });
-    const slug = created.config.slug!;
+    const slug = slugOf(created);
     await harness.service.runPublic(slug, { input: {} });
     await harness.service.runPublic(slug, { input: {} });
     await expect(harness.service.runPublic(slug, { input: {} }))
@@ -147,7 +153,7 @@ describe('Public interfaces (§34) — anonymous invocation', () => {
   it('enforces the daily run cap', async () => {
     const harness = publicHarness();
     const created = await seedInterface(harness, { maxRunsPerDay: 1 });
-    const slug = created.config.slug!;
+    const slug = slugOf(created);
     await harness.service.runPublic(slug, { input: {} });
     await expect(harness.service.runPublic(slug, { input: {} }))
       .rejects.toMatchObject({ code: 'RATE_LIMITED' });
@@ -156,7 +162,7 @@ describe('Public interfaces (§34) — anonymous invocation', () => {
   it('resets the minute window after 60 seconds', async () => {
     const harness = publicHarness('2026-08-14T10:00:00.000Z');
     const created = await seedInterface(harness, { rateLimitPerMinute: 1 });
-    const slug = created.config.slug!;
+    const slug = slugOf(created);
     await harness.service.runPublic(slug, { input: {} });
     await expect(harness.service.runPublic(slug, { input: {} }))
       .rejects.toMatchObject({ code: 'RATE_LIMITED' });
@@ -168,7 +174,7 @@ describe('Public interfaces (§34) — anonymous invocation', () => {
   it('dedupes double-submitted forms via derived idempotency keys', async () => {
     const harness = publicHarness();
     const created = await seedInterface(harness, { inputSchema: { email: { type: 'string' } }, rateLimitPerMinute: 10 });
-    const slug = created.config.slug!;
+    const slug = slugOf(created);
     const first = await harness.service.runPublic(slug, { input: { email: 'a@b.co' } });
     const second = await harness.service.runPublic(slug, { input: { email: 'a@b.co' } });
     expect(second.id).toBe(first.id);
@@ -181,7 +187,7 @@ describe('Public interfaces (§34) — anonymous invocation', () => {
   it('honors an explicit idempotency key', async () => {
     const harness = publicHarness();
     const created = await seedInterface(harness, { inputSchema: { a: { type: 'number' } } });
-    const slug = created.config.slug!;
+    const slug = slugOf(created);
     const first = await harness.service.runPublic(slug, { input: { a: 1 }, idempotencyKey: 'idem_public_form_01' });
     const second = await harness.service.runPublic(slug, { input: { a: 2 }, idempotencyKey: 'idem_public_form_01' });
     expect(second.id).toBe(first.id);
@@ -197,7 +203,7 @@ describe('Public interfaces (§34) — anonymous invocation', () => {
       name: 'Costly form',
       config: { maxCostMinor: 100 },
     });
-    await expect(harness.service.runPublic(created.config.slug!, { input: {} }))
+    await expect(harness.service.runPublic(slugOf(created), { input: {} }))
       .rejects.toMatchObject({ code: 'WORKFLOW_ERROR' });
     const runs = await harness.ports.runs.list(orcfloActorContext.tenantId);
     expect(runs[0].status).toBe('FAILED');

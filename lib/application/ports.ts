@@ -331,6 +331,12 @@ export type ExtendedPlatformPorts = PlatformPorts & PlatformExtensionPorts;
 export interface OrcfloRunRepository {
   findById(tenantId: string, id: string): Promise<OrcfloRun | null>;
   /**
+   * Durable execution — cross-tenant lookup for the background worker
+   * (platform-level, mirroring the outbox claim path). Tenant-scoped
+   * routes never use this.
+   */
+  findByIdGlobal(id: string): Promise<OrcfloRun | null>;
+  /**
    * §48 idempotency — find the run previously created for this tenant
    * with the same idempotency key, so duplicate triggers/retries replay
    * the existing run instead of creating a duplicate.
@@ -339,6 +345,12 @@ export interface OrcfloRunRepository {
   save(run: OrcfloRun): Promise<void>;
   list(tenantId: string, options?: { workflowId?: string; limit?: number }): Promise<OrcfloRun[]>;
   listByTrigger(tenantId: string, triggerId: string, limit?: number): Promise<OrcfloRun[]>;
+  /**
+   * Durable execution — cross-tenant PENDING runs ready for a worker to
+   * execute. Single-worker semantics in this increment (the platform is
+   * a modular monolith); multi-worker claim/lease is future work.
+   */
+  listPending(limit?: number): Promise<OrcfloRun[]>;
 }
 
 export interface OrcfloRunEventRepository {
@@ -375,6 +387,12 @@ export interface OrcfloTriggerRepository {
   findPublicBySlug(slug: string): Promise<OrcfloTrigger | null>;
   save(trigger: OrcfloTrigger): Promise<void>;
   list(tenantId: string, options?: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean }): Promise<OrcfloTrigger[]>;
+  /**
+   * Durable scheduling — cross-tenant listing for the schedule worker
+   * (platform-level, mirroring the outbox claim path). Tenant-scoped
+   * routes never use this.
+   */
+  listAll(options?: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean; limit?: number }): Promise<OrcfloTrigger[]>;
 }
 
 export interface OrcfloBlueprintRepository {

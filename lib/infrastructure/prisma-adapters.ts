@@ -499,6 +499,10 @@ export class PrismaOrcfloRunRepository implements OrcfloRunRepository {
     const row = await this.prisma.orcfloRun.findFirst({ where: { id, tenantId } });
     return row ? mapOrcfloRun(row) : null;
   }
+  async findByIdGlobal(id: string) {
+    const row = await this.prisma.orcfloRun.findFirst({ where: { id } });
+    return row ? mapOrcfloRun(row) : null;
+  }
   async list(tenantId: string, options: { workflowId?: string; limit?: number } = {}) {
     const take = Math.max(1, Math.min(Math.trunc(options.limit ?? 100), 1_000));
     const rows = await this.prisma.orcfloRun.findMany({
@@ -513,6 +517,15 @@ export class PrismaOrcfloRunRepository implements OrcfloRunRepository {
     const rows = await this.prisma.orcfloRun.findMany({
       where: { tenantId, triggerId },
       orderBy: { createdAt: 'desc' },
+      take,
+    });
+    return rows.map(mapOrcfloRun);
+  }
+  async listPending(limit = 50) {
+    const take = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+    const rows = await this.prisma.orcfloRun.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
       take,
     });
     return rows.map(mapOrcfloRun);
@@ -534,6 +547,11 @@ export class PrismaOrcfloRunRepository implements OrcfloRunRepository {
       stepResults: json(value.steps),
       correlationId: value.correlationId,
       idempotencyKey: value.idempotencyKey,
+      actorId: value.actorId,
+      role: value.role,
+      environment: value.environment,
+      limits: value.limits === undefined ? undefined : json(value.limits),
+      approval: value.approval === undefined ? undefined : json(value.approval),
       startedAt: value.startedAt,
       completedAt: value.completedAt,
       createdAt: value.createdAt,
@@ -707,6 +725,18 @@ export class PrismaOrcfloTriggerRepository implements OrcfloTriggerRepository {
         enabled: options.enabledOnly === true ? true : undefined,
       },
       orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(mapOrcfloTrigger);
+  }
+  async listAll(options: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean; limit?: number } = {}) {
+    const take = Math.max(1, Math.min(Math.trunc(options.limit ?? 1_000), 10_000));
+    const rows = await this.prisma.orcfloTrigger.findMany({
+      where: {
+        kind: options.kind,
+        enabled: options.enabledOnly === true ? true : undefined,
+      },
+      orderBy: { createdAt: 'asc' },
+      take,
     });
     return rows.map(mapOrcfloTrigger);
   }
