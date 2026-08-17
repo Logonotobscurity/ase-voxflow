@@ -19,6 +19,10 @@ const rolePermissions: Record<TenantRole, readonly string[]> = {
   OPERATOR: ['agent:read', 'agent:run', 'workflow:read', 'workflow:execute', 'tool:read', 'tool:invoke'],
   APPROVER: ['agent:read', 'workflow:read', 'approval:decide', 'workflow:execute', 'transaction:authorize'],
   VIEWER: ['agent:read', 'workflow:read'],
+  // §34 — synthetic role for anonymous public-interface callers. It may
+  // execute the interface's workflow and nothing else; it is never a
+  // membership role and cannot read or write tenant resources.
+  PUBLIC: ['workflow:execute'],
 };
 
 export function roleAllows(role: TenantRole, permission: string): boolean {

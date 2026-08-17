@@ -29,6 +29,15 @@ Open `http://localhost:3000`. Memory mode is process-local and ephemeral. API re
 - `/api/v1/approvals/:approvalId/decision` — separation-of-duties approval API
 - `/api/v1/agent/commands` — canonical text/already-transcribed-voice proposal API with intent RBAC and atomic privacy-safe audit intent
 - `/api/v1/voice/commands` — compatibility adapter for already-transcribed voice input; it does not accept media
+- `/api/v1/orcflo/runs`, `/api/v1/orcflo/runs/:runId`, `/api/v1/orcflo/runs/:runId/stream` — Orcflo run engine: start/list runs; `async: true` creates a PENDING run executed by the in-process worker; the stream replays the run log and tails live (SSE); executes graphs with deterministic conditions (`condition` nodes + `condition` edges), routers (structured route selection), bounded `for_each` loops (`loop`/`loopExit` edges, `maxItems`/`maxIterations` limits), and parallel execution of independent nodes (`maxConcurrency`, default 4)
+- `/api/v1/orcflo/runs/:runId/approval` — resumable approval (§49): APPROVED resumes a WAITING_APPROVAL run from the approval node, REJECTED cancels it
+- `/api/v1/orcflo/runs/:runId/decisions` — persisted control-node decisions (condition/router/for_each) for branch coverage and audit
+- `/api/v1/orcflo/metering` — metering summary (runs, steps, cache hits/misses, model calls, tokens, duration, cost)
+- `/api/v1/orcflo/models`, `/api/v1/orcflo/models/:providerId/call` — fail-closed model provider registry and deterministic demo calls
+- `/api/v1/orcflo/triggers`, `/api/v1/orcflo/triggers/:triggerId/fire`, `/api/v1/orcflo/triggers/webhook/:key/fire`, `/api/v1/orcflo/triggers/schedule/drain`, `/api/v1/orcflo/triggers/event/fire` — the five trigger kinds (manual, schedule, webhook, event, public); run creation is idempotent via `idempotencyKey` (body or `Idempotency-Key` header; webhook/event triggers derive keys from trigger + payload so duplicate deliveries dedupe)
+- `/api/v1/orcflo/blueprints`, `/api/v1/orcflo/blueprints/from-workflow`, `/api/v1/orcflo/blueprints/:blueprintId/instantiate` — reusable workflow templates that instantiate into first-class workflows
+- `/api/v1/orcflo/interfaces`, `/api/v1/orcflo/interfaces/:slug/run` — public workflow interfaces (§34): expose a READY workflow to anonymous callers as a public form with input-schema validation, per-interface + per-IP + per-tenant rate/daily-run/cost limits, and idempotent runs (the run endpoint needs no authentication)
+- `/api/v1/orcflo/workflows/:workflowId/tool` — the AGENT ⇄ WORKFLOW bridge: register a READY workflow as a callable tool in the canonical tool registry (an agent assigned the tool can invoke it; nested runs are depth-limited). `agent` workflow nodes execute through the canonical agent runtime
 - `/api/vendors` — legacy read-only sample contract; writes fail closed
 - `/api/voice/transcribe`, `/api/voice/synthesize` — deprecated provider stubs that return `501` and never fabricate media results
 

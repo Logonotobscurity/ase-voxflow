@@ -1,9 +1,23 @@
 import 'server-only';
 
-import type { PlatformPorts } from '../application/ports';
+import type { OrcfloPersistencePorts, OrcfloRuntimePorts, PlatformPorts } from '../application/ports';
 import { AgentCommandService } from '../application/agent-command-service';
 import { BoundedAgentRuntime } from '../application/agent-runtime';
+import { DemoModelProviderGateway, NoopModelProviderGateway } from '../application/model-providers';
+import { OrcfloBlueprintService } from '../application/orcflo-blueprints';
+import { OrcfloEngine } from '../application/orcflo-engine';
+import { OrcfloPublicInterfaceService } from '../application/orcflo-public';
+import { OrcfloTriggerService } from '../application/orcflo-triggers';
+import { RunDispatcher } from '../application/run-dispatcher';
+import { RunEventBus } from '../application/run-event-bus';
+import { ScheduleDispatcher } from '../application/schedule-dispatcher';
 import { TransactionService } from '../application/transaction-service';
+import {
+  WorkflowAwareToolExecutor,
+  WorkflowAsToolExecutor,
+  WorkflowAsToolService,
+  WORKFLOW_TOOL_DEFAULT_MAX_DEPTH,
+} from '../application/workflow-as-tool';
 import { WorkflowRunner, type WorkflowNodeHandler } from '../application/workflow-runner';
 import type { WorkflowNode } from '../domain/schemas';
 import { PlatformError } from '../domain/errors';
@@ -37,6 +51,38 @@ export type PlatformApplication = {
   agents: BoundedAgentRuntime;
   workflows: WorkflowRunner;
   transactions: TransactionService;
+  /**
+   * Orcflo — the deterministic workflow run engine. Runs, run stream,
+   * step cache, metering, fail-closed model providers, four triggers,
+   * and blueprints all hang off this root.
+   */
+  orcflo: OrcfloEngine;
+  triggers: OrcfloTriggerService;
+  blueprints: OrcfloBlueprintService;
+  /**
+   * §34 — public workflow interfaces. Anonymous, rate-limited,
+   * input-validated execution of a READY workflow through a public slug.
+   */
+  publicInterfaces: OrcfloPublicInterfaceService;
+  /**
+   * Durable execution — the in-process run worker (PENDING -> executed)
+   * and the schedule worker (due cron buckets -> runs). Both are wired as
+   * unref'd loops, like the outbox dispatcher.
+   */
+  runDispatcher: RunDispatcher;
+  scheduleDispatcher: ScheduleDispatcher;
+  runEventBus: RunEventBus;
+  startRunDispatcherLoop: () => void;
+  stopRunDispatcherLoop: () => void;
+  startScheduleDispatcherLoop: () => void;
+  stopScheduleDispatcherLoop: () => void;
+  /**
+   * Orcflo bridge — workflow-as-tool registry. A READY workflow can be
+   * registered as a callable tool in the canonical tool registry so the
+   * Agent Runtime can invoke it; agent nodes inside workflows run
+   * through the same BoundedAgentRuntime.
+   */
+  workflowTools: WorkflowAsToolService;
   persistence: 'ephemeral-memory' | 'postgresql';
   /** Capability 06 — empty allowlist by default. Wire a real registry to enable MCP. */
   mcpServers: import('../application/ports').McpServerRegistry;
@@ -66,11 +112,13 @@ export function getPlatform(): PlatformApplication {
   const toolExecutor = new DeterministicToolExecutor(new Map());
   const clock = new SystemClock();
   let ports: PlatformPorts;
+  let orcfloPersistence: OrcfloPersistencePorts;
   let persistence: PlatformApplication['persistence'];
 
   if (persistenceMode === 'postgres') {
     const prisma = getPrismaClient();
     const persistencePorts = createPrismaPersistencePorts(prisma);
+    orcfloPersistence = persistencePorts.orcflo;
     ports = {
       ...persistencePorts,
       unitOfWork: new PrismaUnitOfWork(prisma),
@@ -79,7 +127,8 @@ export function getPlatform(): PlatformApplication {
     };
     persistence = 'postgresql';
   } else if (persistenceMode === 'memory') {
-    const { store, ports: persistencePorts, tenantMembers } = createInMemoryPersistencePorts();
+    const { store, ports: persistencePorts, tenantMembers, orcflo } = createInMemoryPersistencePorts();
+    orcfloPersistence = orcflo;
     ports = {
       ...persistencePorts,
       unitOfWork: new InMemoryUnitOfWork(store, persistencePorts),
@@ -92,9 +141,49 @@ export function getPlatform(): PlatformApplication {
     throw new PlatformError('CONFIGURATION_ERROR', `Unsupported ASE_PERSISTENCE_MODE: ${persistenceMode}.`);
   }
 
+  // Orcflo bridge — workflow-as-tool. The executor starts nested runs
+  // through the engine; the engine reference is resolved lazily so the
+  // tool executor can be wired before the engine exists (no cycle).
+  const engineRef: { current?: OrcfloEngine } = {};
+  const maxWorkflowToolDepth = Number.parseInt(
+    process.env.ASE_ORCFLO_TOOL_MAX_DEPTH ?? String(WORKFLOW_TOOL_DEFAULT_MAX_DEPTH),
+    10,
+  );
+  const workflowToolExecutor = new WorkflowAsToolExecutor(() => {
+    if (!engineRef.current) {
+      throw new PlatformError('CONFIGURATION_ERROR', 'The Orcflo engine is not initialized.');
+    }
+    return engineRef.current;
+  }, { maxDepth: Number.isFinite(maxWorkflowToolDepth) ? maxWorkflowToolDepth : WORKFLOW_TOOL_DEFAULT_MAX_DEPTH });
+  ports = {
+    ...ports,
+    // One ToolExecutor port: workflow tools route to the engine, every
+    // other tool goes through the deterministic demo executor.
+    toolExecutor: new WorkflowAwareToolExecutor(ports.toolExecutor, workflowToolExecutor),
+  };
+
+  // Orcflo — deterministic run engine. The model gateway is fail-closed:
+  // demo runtime modes may use the deterministic demo gateway; every
+  // other mode refuses all model calls (no verified provider SDK exists).
+  const orcfloPorts: OrcfloRuntimePorts = { ...ports, ...orcfloPersistence };
+  const modelGateway = runtimeMode === 'demo'
+    ? new DemoModelProviderGateway()
+    : new NoopModelProviderGateway();
+
   // Audit §1 — identity verifier selection.
   if (runtimeMode === 'demo') {
     ports.identity = new DemoHeaderIdentityVerifier();
+    // Demo bootstrap: the documented demo defaults (tenant_demo /
+    // actor_ada / BUILDER, see README) must be able to authenticate in
+    // the ephemeral memory runtime even though a membership authority
+    // is wired. Seeding is demo+memory-only and matches the identity
+    // layer's own bootstrap intent; non-demo modes never seed.
+    if (persistenceMode === 'memory' && ports.tenantMembers) {
+      void ports.tenantMembers.upsert({ tenantId: 'tenant_demo', actorId: 'actor_ada', role: 'BUILDER' });
+      // Demo approver — lets the demo exercise §49 approval decisions
+      // without a separate provisioning surface (demo+memory only).
+      void ports.tenantMembers.upsert({ tenantId: 'tenant_demo', actorId: 'actor_approver', role: 'APPROVER' });
+    }
   } else {
     const token = process.env.ASE_PROD_BEARER_TOKEN;
     if (!token) {
@@ -160,12 +249,95 @@ export function getPlatform(): PlatformApplication {
   };
 
   const handlers = createDemoNodeHandlers();
+  // The canonical agent runtime is shared by direct agent runs and by
+  // `agent` workflow nodes (the WORKFLOW → AGENT bridge). Its tool
+  // executor is the composite above, so an agent can call a workflow
+  // tool, which starts an Orcflo run, which may contain agent nodes
+  // again — bounded by the workflow-tool depth limit.
+  const boundedAgentRuntime = new BoundedAgentRuntime(ports);
+  const runEventBus = new RunEventBus();
+  const orcfloEngine = new OrcfloEngine(orcfloPorts, handlers, modelGateway, clock, {
+    agentRuntime: boundedAgentRuntime,
+    runEventBus,
+  });
+  engineRef.current = orcfloEngine;
+
+  // Durable execution — run worker + schedule worker loops (unref'd, so
+  // the process can still exit; same pattern as the outbox dispatcher).
+  const triggerService = new OrcfloTriggerService(orcfloPorts, orcfloEngine, clock);
+  const runDispatcher = new RunDispatcher(orcfloEngine, orcfloPorts, clock, {
+    workerId: process.env.ASE_RUN_WORKER_ID ?? `run-worker-${process.pid}`,
+    leaseMs: Number.parseInt(process.env.ASE_RUN_LEASE_MS ?? '60000', 10),
+  });
+  const scheduleDispatcher = new ScheduleDispatcher(triggerService, clock);
+  const makeLoop = (
+    tick: () => Promise<unknown>,
+    intervalMs: number,
+    label: string,
+  ): { start: () => void; stop: () => void } => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+    let running = false;
+    const runOneTick = async () => {
+      if (running) return;
+      running = true;
+      try {
+        await tick();
+      } catch (error) {
+        console.error(`[${label}] tick failed`, error);
+      } finally {
+        running = false;
+      }
+    };
+    const start = () => {
+      if (timer) return;
+      timer = setInterval(() => { void runOneTick(); }, intervalMs);
+      if (typeof timer === 'object' && timer !== null && 'unref' in timer) {
+        (timer as { unref: () => void }).unref();
+      }
+    };
+    const stop = () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    };
+    return { start, stop };
+  };
+  const runWorkerLoop = makeLoop(
+    () => runDispatcher.tick(),
+    Number.parseInt(process.env.ASE_RUN_TICK_INTERVAL_MS ?? '1000', 10),
+    'run-dispatcher',
+  );
+  const scheduleLoop = makeLoop(
+    () => scheduleDispatcher.tick(),
+    Number.parseInt(process.env.ASE_SCHEDULE_TICK_INTERVAL_MS ?? '60000', 10),
+    'schedule-dispatcher',
+  );
+  // Auto-start so async runs and schedules actually execute in a running
+  // server; loops are unref'd and idempotent to re-tick.
+  runWorkerLoop.start();
+  scheduleLoop.start();
   const application: PlatformApplication = {
     ports,
     commands: new AgentCommandService(ports),
-    agents: new BoundedAgentRuntime(ports),
+    agents: boundedAgentRuntime,
     workflows: new WorkflowRunner(ports, handlers),
     transactions: new TransactionService(ports),
+    orcflo: orcfloEngine,
+    triggers: triggerService,
+    blueprints: new OrcfloBlueprintService(orcfloPorts),
+    publicInterfaces: new OrcfloPublicInterfaceService(orcfloPorts, orcfloEngine, clock, {
+      tenantRateLimitPerMinute: Number.parseInt(process.env.ASE_PUBLIC_TENANT_RATE_PER_MINUTE ?? '100', 10),
+      tenantMaxRunsPerDay: Number.parseInt(process.env.ASE_PUBLIC_TENANT_MAX_RUNS_PER_DAY ?? '1000', 10),
+    }),
+    runDispatcher,
+    scheduleDispatcher,
+    runEventBus,
+    startRunDispatcherLoop: runWorkerLoop.start,
+    stopRunDispatcherLoop: runWorkerLoop.stop,
+    startScheduleDispatcherLoop: scheduleLoop.start,
+    stopScheduleDispatcherLoop: scheduleLoop.stop,
+    workflowTools: new WorkflowAsToolService(orcfloPorts),
     persistence,
     mcpServers: new EmptyMcpServerRegistry(),
     avatar: new NoopAvatarSessionAdapter(),

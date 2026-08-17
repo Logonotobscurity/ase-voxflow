@@ -12,6 +12,17 @@ import type {
   Workflow,
   WorkflowExecution,
 } from '../domain/schemas';
+import type {
+  ModelCallResult,
+  OrcfloBlueprint,
+  OrcfloDecisionRecord,
+  OrcfloMeteringRecord,
+  OrcfloModelProvider,
+  OrcfloRun,
+  OrcfloRunEvent,
+  OrcfloStepCacheEntry,
+  OrcfloTrigger,
+} from '../domain/orcflo';
 
 export type { AvatarSessionRef } from '../domain/schemas';
 
@@ -34,6 +45,13 @@ export type ToolInvocation = {
   tool: ToolDefinition;
   input: Record<string, unknown>;
   signal: AbortSignal;
+  /**
+   * Orcflo bridge — the actor context of the caller. Present when the
+   * invocation originates from the canonical agent runtime; the
+   * workflow-as-tool executor requires it to start an Orcflo run with
+   * full tenancy, role, and correlation.
+   */
+  context?: import('../domain/policy').ActorContext;
 };
 
 export type ToolResult = {
@@ -87,6 +105,11 @@ export interface EventLog {
   /** Append only to the event log; callers normally use publish. */
   append(event: DomainEvent): Promise<void>;
   listByCorrelation(tenantId: string, correlationId: string): Promise<DomainEvent[]>;
+  /**
+   * Audit trail — recent tenant events in reverse-chronological order
+   * (the authoritative source /app/audit consumes; not UI-owned state).
+   */
+  listByTenant(tenantId: string, options?: { limit?: number }): Promise<DomainEvent[]>;
 }
 
 export interface OutboxRepository {
@@ -172,15 +195,20 @@ export interface TranscriptRepository {
  * given tenant, as provisioned by the tenant administrator. The
  * identity layer calls it after the verifier identifies the actor.
  */
+export type MembershipRole = Exclude<import('../domain/schemas').TenantRole, 'PUBLIC'>;
+
 export interface TenantMembership {
   tenantId: string;
   actorId: string;
-  role: import('../domain/schemas').TenantRole;
+  /** PUBLIC is a synthetic execute-only role for anonymous public-interface callers; it is never a membership role. */
+  role: MembershipRole;
 }
 
 export interface TenantMembershipRepository {
   find(tenantId: string, actorId: string): Promise<TenantMembership | null>;
   listForActor(actorId: string): Promise<TenantMembership[]>;
+  /** Team surface — the tenant's members and roles (RBAC source of truth). */
+  listForTenant(tenantId: string): Promise<TenantMembership[]>;
   upsert(membership: TenantMembership): Promise<void>;
 }
 
@@ -305,3 +333,136 @@ export type PlatformExtensionPorts = {
 };
 
 export type ExtendedPlatformPorts = PlatformPorts & PlatformExtensionPorts;
+
+// --- Orcflo engine ports (additive, see docs/ARCHITECTURE.md §5) ---
+
+export interface OrcfloRunRepository {
+  findById(tenantId: string, id: string): Promise<OrcfloRun | null>;
+  /**
+   * Durable execution — cross-tenant lookup for the background worker
+   * (platform-level, mirroring the outbox claim path). Tenant-scoped
+   * routes never use this.
+   */
+  findByIdGlobal(id: string): Promise<OrcfloRun | null>;
+  /**
+   * §48 idempotency — find the run previously created for this tenant
+   * with the same idempotency key, so duplicate triggers/retries replay
+   * the existing run instead of creating a duplicate.
+   */
+  findByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<OrcfloRun | null>;
+  save(run: OrcfloRun): Promise<void>;
+  list(tenantId: string, options?: { workflowId?: string; limit?: number }): Promise<OrcfloRun[]>;
+  listByTrigger(tenantId: string, triggerId: string, limit?: number): Promise<OrcfloRun[]>;
+  /**
+   * Durable execution — cross-tenant PENDING runs ready for a worker to
+   * execute (monitoring/ops query; the dispatcher uses claimBatch).
+   */
+  listPending(limit?: number): Promise<OrcfloRun[]>;
+  /**
+   * Multi-worker claim/lease — atomically claim PENDING runs (or rows
+   * whose lease has expired) for this worker, setting `claimedBy` /
+   * `claimedUntil`. The implementation must be safe under concurrent
+   * workers: a row is given to exactly one worker (FOR UPDATE SKIP
+   * LOCKED in Prisma; a serialized lock in memory). Mirrors the outbox
+   * claim/lease protocol.
+   */
+  claimBatch(workerId: string, leaseMs: number, limit: number): Promise<OrcfloRun[]>;
+  /**
+   * Release this worker's claim on a run (parked at WAITING_APPROVAL or
+   * reached a terminal state). Conditional on `claimedBy` so a worker
+   * never clears another worker's live lease.
+   */
+  releaseClaim(id: string, workerId: string): Promise<void>;
+}
+
+export interface OrcfloRunEventRepository {
+  /** Append a stream event with the next per-run sequence number. */
+  append(event: OrcfloRunEvent): Promise<void>;
+  listForRun(tenantId: string, runId: string): Promise<OrcfloRunEvent[]>;
+}
+
+export interface OrcfloStepCacheRepository {
+  findByKey(tenantId: string, key: string): Promise<OrcfloStepCacheEntry | null>;
+  save(entry: OrcfloStepCacheEntry): Promise<void>;
+  /** Record a cache hit (increments `hits`, sets `lastHitAt`). */
+  recordHit(tenantId: string, key: string, atIso: string): Promise<void>;
+}
+
+export interface OrcfloMeteringRepository {
+  record(record: OrcfloMeteringRecord): Promise<void>;
+  list(tenantId: string, options?: { since?: string; limit?: number }): Promise<OrcfloMeteringRecord[]>;
+}
+
+/** Persisted control-node decisions (branch coverage / audit). */
+export interface OrcfloDecisionRepository {
+  append(record: OrcfloDecisionRecord): Promise<void>;
+  listForRun(tenantId: string, runId: string): Promise<OrcfloDecisionRecord[]>;
+}
+
+export interface OrcfloModelProviderRepository {
+  findById(tenantId: string, id: string): Promise<OrcfloModelProvider | null>;
+  save(provider: OrcfloModelProvider): Promise<void>;
+  list(tenantId: string): Promise<OrcfloModelProvider[]>;
+}
+
+export interface OrcfloTriggerRepository {
+  findById(tenantId: string, id: string): Promise<OrcfloTrigger | null>;
+  /**
+   * §34 — public interfaces are invoked anonymously by `slug`, so the
+   * lookup is deliberately cross-tenant (the slug is globally unique in
+   * practice; the config stores it and both adapters enforce the check).
+   */
+  findPublicBySlug(slug: string): Promise<OrcfloTrigger | null>;
+  save(trigger: OrcfloTrigger): Promise<void>;
+  list(tenantId: string, options?: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean }): Promise<OrcfloTrigger[]>;
+  /**
+   * Durable scheduling — cross-tenant listing for the schedule worker
+   * (platform-level, mirroring the outbox claim path). Tenant-scoped
+   * routes never use this.
+   */
+  listAll(options?: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean; limit?: number }): Promise<OrcfloTrigger[]>;
+}
+
+export interface OrcfloBlueprintRepository {
+  findById(tenantId: string, id: string): Promise<OrcfloBlueprint | null>;
+  save(blueprint: OrcfloBlueprint): Promise<void>;
+  list(tenantId: string): Promise<OrcfloBlueprint[]>;
+}
+
+/**
+ * Persistence ports used by the Orcflo engine. Both the in-memory and
+ * the Prisma adapter implement this set; the engine receives the
+ * regular `PlatformPorts` plus these via `OrcfloRuntimePorts`.
+ */
+export type OrcfloPersistencePorts = {
+  runs: OrcfloRunRepository;
+  runEvents: OrcfloRunEventRepository;
+  stepCache: OrcfloStepCacheRepository;
+  metering: OrcfloMeteringRepository;
+  decisions: OrcfloDecisionRepository;
+  modelProviders: OrcfloModelProviderRepository;
+  triggers: OrcfloTriggerRepository;
+  blueprints: OrcfloBlueprintRepository;
+};
+
+export type OrcfloRuntimePorts = PlatformPorts & OrcfloPersistencePorts;
+
+/**
+ * Model provider gateway (fail-closed).
+ *
+ * The gateway never talks to an external service: `noop` providers
+ * refuse every call, `demo` providers return a deterministic echo for
+ * the explicitly ephemeral demo runtime, and `external` providers are
+ * refused until a current official SDK review exists (the platform has
+ * none). Metering for every accepted call is recorded by the engine.
+ */
+export interface ModelCallInput {
+  tenantId: string;
+  providerId: string;
+  prompt: string;
+  maxTokens: number;
+}
+
+export interface ModelProviderGateway {
+  call(provider: OrcfloModelProvider, input: ModelCallInput): Promise<ModelCallResult>;
+}

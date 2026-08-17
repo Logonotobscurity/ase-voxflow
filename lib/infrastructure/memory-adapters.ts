@@ -9,6 +9,16 @@ import type {
   Workflow,
   WorkflowExecution,
 } from '../domain/schemas';
+import type {
+  OrcfloBlueprint,
+  OrcfloDecisionRecord,
+  OrcfloMeteringRecord,
+  OrcfloModelProvider,
+  OrcfloRun,
+  OrcfloRunEvent,
+  OrcfloStepCacheEntry,
+  OrcfloTrigger,
+} from '../domain/orcflo';
 import { PlatformError } from '../domain/errors';
 import { createOutboxMessage } from '../domain/events';
 import type {
@@ -18,6 +28,15 @@ import type {
   EventLog,
   EventPublisher,
   ExecutionRepository,
+  OrcfloBlueprintRepository,
+  OrcfloDecisionRepository,
+  OrcfloMeteringRepository,
+  OrcfloModelProviderRepository,
+  OrcfloPersistencePorts,
+  OrcfloRunEventRepository,
+  OrcfloRunRepository,
+  OrcfloStepCacheRepository,
+  OrcfloTriggerRepository,
   OutboxRepository,
   PersistencePorts,
   TenantMembership,
@@ -53,7 +72,18 @@ type InMemoryState = {
   outbox: Map<string,OutboxMessage>;
   transcripts: Map<string, Transcript>;
   // Audit §1 — tenant memberships. Keyed by `${tenantId}::${actorId}`.
+  // PUBLIC is a synthetic execute-only role for anonymous public-interface
+  // callers and is never a membership role.
   memberships: Map<string, { tenantId: string; actorId: string; role: 'ADMIN' | 'BUILDER' | 'OPERATOR' | 'APPROVER' | 'VIEWER' }>;
+  // Orcflo engine state (additive).
+  orcfloRuns: Map<string, OrcfloRun>;
+  orcfloRunEvents: Map<string, OrcfloRunEvent>;
+  orcfloStepCache: Map<string, OrcfloStepCacheEntry>;
+  orcfloMetering: Map<string, OrcfloMeteringRecord>;
+  orcfloDecisions: Map<string, OrcfloDecisionRecord>;
+  orcfloModelProviders: Map<string, OrcfloModelProvider>;
+  orcfloTriggers: Map<string, OrcfloTrigger>;
+  orcfloBlueprints: Map<string, OrcfloBlueprint>;
 };
 
 function emptyState(): InMemoryState {
@@ -68,6 +98,14 @@ function emptyState(): InMemoryState {
     outbox: new Map(),
     transcripts: new Map(),
     memberships: new Map(),
+    orcfloRuns: new Map(),
+    orcfloRunEvents: new Map(),
+    orcfloStepCache: new Map(),
+    orcfloMetering: new Map(),
+    orcfloDecisions: new Map(),
+    orcfloModelProviders: new Map(),
+    orcfloTriggers: new Map(),
+    orcfloBlueprints: new Map(),
   };
 }
 
@@ -312,6 +350,14 @@ export class InMemoryEventBus implements EventPublisher, EventLog {
       .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
       .map(copy);
   }
+  async listByTenant(tenantId: string, options: { limit?: number } = {}) {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(options.limit ?? 200), 2_000));
+    return [...this.store.state.events.values()]
+      .filter((event) => event.tenantId === tenantId)
+      .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
 }
 
 /**
@@ -348,6 +394,7 @@ export function createInMemoryPersistencePorts(): {
   ports: PersistencePorts;
   transcripts: InMemoryTranscriptRepository;
   tenantMembers: InMemoryTenantMembershipRepository;
+  orcflo: OrcfloPersistencePorts;
 } {
   const store = new InMemoryPlatformStore();
   const outbox = new InMemoryOutboxRepository(store);
@@ -363,7 +410,17 @@ export function createInMemoryPersistencePorts(): {
     events: new InMemoryEventBus(store, outbox),
     outbox,
   };
-  return { store, ports, transcripts, tenantMembers };
+  const orcflo: OrcfloPersistencePorts = {
+    runs: new InMemoryOrcfloRunRepository(store),
+    runEvents: new InMemoryOrcfloRunEventRepository(store),
+    stepCache: new InMemoryOrcfloStepCacheRepository(store),
+    metering: new InMemoryOrcfloMeteringRepository(store),
+    decisions: new InMemoryOrcfloDecisionRepository(store),
+    modelProviders: new InMemoryOrcfloModelProviderRepository(store),
+    triggers: new InMemoryOrcfloTriggerRepository(store),
+    blueprints: new InMemoryOrcfloBlueprintRepository(store),
+  };
+  return { store, ports, transcripts, tenantMembers, orcflo };
 }
 
 export type ToolHandler = (invocation: ToolInvocation) => Promise<ToolResult> | ToolResult;
@@ -402,6 +459,11 @@ export class InMemoryTenantMembershipRepository implements TenantMembershipRepos
       .filter((m) => m.actorId === actorId)
       .map(copy);
   }
+  async listForTenant(tenantId: string) {
+    return [...this.store.state.memberships.values()]
+      .filter((m) => m.tenantId === tenantId)
+      .map(copy);
+  }
 
   async upsert(membership: TenantMembership): Promise<void> {
     this.store.state.memberships.set(this.key(membership.tenantId, membership.actorId), copy(membership));
@@ -433,6 +495,276 @@ export class InMemoryTranscriptRepository implements TranscriptRepository {
       .filter((t) => t.tenantId === tenantId && t.participantId === participantId)
       .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
       .slice(0, safeLimit)
+      .map(copy);
+  }
+}
+
+// --- Orcflo engine repositories (additive) ---
+
+export class InMemoryOrcfloRunRepository implements OrcfloRunRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+  async findById(tenantId: string, id: string) {
+    const value = this.store.state.orcfloRuns.get(id);
+    return value?.tenantId === tenantId ? copy(value) : null;
+  }
+  async findByIdGlobal(id: string) {
+    const value = this.store.state.orcfloRuns.get(id);
+    return value ? copy(value) : null;
+  }
+  async findByIdempotencyKey(tenantId: string, idempotencyKey: string) {
+    const value = [...this.store.state.orcfloRuns.values()]
+      .find((run) => run.tenantId === tenantId && run.idempotencyKey === idempotencyKey);
+    return value ? copy(value) : null;
+  }
+  async save(value: OrcfloRun) {
+    assertTenantOwnership(this.store.state.orcfloRuns.get(value.id), value);
+    // §48 — the unique (tenantId, idempotencyKey) invariant, mirroring
+    // the partial unique index in the Prisma adapter.
+    if (value.idempotencyKey !== undefined) {
+      const collision = [...this.store.state.orcfloRuns.values()].find((run) => (
+        run.id !== value.id
+        && run.tenantId === value.tenantId
+        && run.idempotencyKey === value.idempotencyKey
+      ));
+      if (collision) {
+        throw new PlatformError('CONFLICT', 'A run already exists for this idempotency key.');
+      }
+    }
+    this.store.state.orcfloRuns.set(value.id, copy(value));
+  }
+  async list(tenantId: string, options: { workflowId?: string; limit?: number } = {}) {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(options.limit ?? 100), 1_000));
+    return [...this.store.state.orcfloRuns.values()]
+      .filter((run) => run.tenantId === tenantId && (options.workflowId === undefined || run.workflowId === options.workflowId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
+  async listByTrigger(tenantId: string, triggerId: string, limit = 100) {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+    return [...this.store.state.orcfloRuns.values()]
+      .filter((run) => run.tenantId === tenantId && run.triggerId === triggerId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
+  async listPending(limit = 50) {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+    return [...this.store.state.orcfloRuns.values()]
+      .filter((run) => run.status === 'PENDING')
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
+
+  // Multi-worker claim/lease — a simple serial lock so a single process
+  // can simulate the FOR UPDATE SKIP LOCKED semantics the Prisma adapter
+  // uses in production (mirrors the outbox in-memory adapter).
+  private claimQueue: Promise<void> = Promise.resolve();
+
+  async claimBatch(workerId: string, leaseMs: number, limit: number): Promise<OrcfloRun[]> {
+    const previous = this.claimQueue;
+    let release: () => void = () => {};
+    this.claimQueue = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 1_000));
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      const claimedUntilIso = new Date(nowMs + Math.max(100, Math.trunc(leaseMs))).toISOString();
+      const candidates = [...this.store.state.orcfloRuns.values()]
+        .filter((run) => (
+          run.status === 'PENDING'
+          && (run.claimedBy === undefined || (run.claimedUntil !== undefined && Date.parse(run.claimedUntil) <= nowMs))
+        ))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .slice(0, safeLimit);
+      const result: OrcfloRun[] = [];
+      for (const candidate of candidates) {
+        const next: OrcfloRun = {
+          ...copy(candidate),
+          claimedBy: workerId,
+          claimedUntil: claimedUntilIso,
+          updatedAt: nowIso,
+        };
+        this.store.state.orcfloRuns.set(next.id, copy(next));
+        result.push(copy(next));
+      }
+      return result;
+    } finally {
+      release();
+    }
+  }
+
+  async releaseClaim(id: string, workerId: string): Promise<void> {
+    const value = this.store.state.orcfloRuns.get(id);
+    if (!value) throw new PlatformError('NOT_FOUND', `Run ${id} was not found.`);
+    if (value.claimedBy !== workerId) return; // never clear another worker's lease
+    const nowIso = new Date().toISOString();
+    const updated: OrcfloRun = {
+      ...copy(value),
+      claimedBy: undefined,
+      claimedUntil: undefined,
+      updatedAt: nowIso,
+    };
+    this.store.state.orcfloRuns.set(id, copy(updated));
+  }
+}
+
+export class InMemoryOrcfloRunEventRepository implements OrcfloRunEventRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+  async append(event: OrcfloRunEvent) {
+    const existing = this.store.state.orcfloRunEvents.get(event.id);
+    assertTenantOwnership(existing, event);
+    if (existing) throw new PlatformError('CONFLICT', `Run event ${event.id} already exists.`);
+    this.store.state.orcfloRunEvents.set(event.id, copy(event));
+  }
+  async listForRun(tenantId: string, runId: string) {
+    return [...this.store.state.orcfloRunEvents.values()]
+      .filter((event) => event.tenantId === tenantId && event.runId === runId)
+      .sort((a, b) => a.sequence - b.sequence)
+      .map(copy);
+  }
+}
+
+export class InMemoryOrcfloStepCacheRepository implements OrcfloStepCacheRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+  async findByKey(tenantId: string, key: string) {
+    const value = [...this.store.state.orcfloStepCache.values()]
+      .find((entry) => entry.tenantId === tenantId && entry.key === key);
+    return value ? copy(value) : null;
+  }
+  async save(entry: OrcfloStepCacheEntry) {
+    const existing = [...this.store.state.orcfloStepCache.values()]
+      .find((record) => record.tenantId === entry.tenantId && record.key === entry.key);
+    if (existing && existing.id !== entry.id) {
+      throw new PlatformError('CONFLICT', `Step cache key ${entry.key} is already in use.`);
+    }
+    assertTenantOwnership(existing, entry);
+    this.store.state.orcfloStepCache.set(entry.id, copy(entry));
+  }
+  async recordHit(tenantId: string, key: string, atIso: string) {
+    const value = [...this.store.state.orcfloStepCache.values()]
+      .find((entry) => entry.tenantId === tenantId && entry.key === key);
+    if (!value) throw new PlatformError('NOT_FOUND', `Step cache entry ${key} was not found.`);
+    const updated: OrcfloStepCacheEntry = {
+      ...copy(value),
+      hits: value.hits + 1,
+      lastHitAt: atIso,
+    };
+    this.store.state.orcfloStepCache.set(value.id, copy(updated));
+  }
+}
+
+export class InMemoryOrcfloMeteringRepository implements OrcfloMeteringRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+  async record(record: OrcfloMeteringRecord) {
+    const existing = this.store.state.orcfloMetering.get(record.id);
+    assertTenantOwnership(existing, record);
+    if (existing) throw new PlatformError('CONFLICT', `Metering record ${record.id} already exists.`);
+    this.store.state.orcfloMetering.set(record.id, copy(record));
+  }
+  async list(tenantId: string, options: { since?: string; limit?: number } = {}) {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(options.limit ?? 10_000), 100_000));
+    return [...this.store.state.orcfloMetering.values()]
+      .filter((record) => record.tenantId === tenantId && (options.since === undefined || record.recordedAt >= options.since))
+      .sort((a, b) => a.recordedAt.localeCompare(b.recordedAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
+}
+
+export class InMemoryOrcfloDecisionRepository implements OrcfloDecisionRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+  async append(record: OrcfloDecisionRecord) {
+    const existing = this.store.state.orcfloDecisions.get(record.id);
+    assertTenantOwnership(existing, record);
+    if (existing) throw new PlatformError('CONFLICT', `Decision record ${record.id} already exists.`);
+    this.store.state.orcfloDecisions.set(record.id, copy(record));
+  }
+  async listForRun(tenantId: string, runId: string) {
+    return [...this.store.state.orcfloDecisions.values()]
+      .filter((record) => record.tenantId === tenantId && record.runId === runId)
+      .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
+      .map(copy);
+  }
+}
+
+export class InMemoryOrcfloModelProviderRepository implements OrcfloModelProviderRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+  async findById(tenantId: string, id: string) {
+    const value = this.store.state.orcfloModelProviders.get(id);
+    return value?.tenantId === tenantId ? copy(value) : null;
+  }
+  async save(value: OrcfloModelProvider) {
+    assertTenantOwnership(this.store.state.orcfloModelProviders.get(value.id), value);
+    const collision = [...this.store.state.orcfloModelProviders.values()].find((provider) => (
+      provider.id !== value.id
+      && provider.tenantId === value.tenantId
+      && provider.name === value.name
+    ));
+    if (collision) throw new PlatformError('CONFLICT', 'Model provider name is already in use for this tenant.');
+    this.store.state.orcfloModelProviders.set(value.id, copy(value));
+  }
+  async list(tenantId: string) {
+    return [...this.store.state.orcfloModelProviders.values()]
+      .filter((provider) => provider.tenantId === tenantId)
+      .map(copy);
+  }
+}
+
+export class InMemoryOrcfloTriggerRepository implements OrcfloTriggerRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+  async findById(tenantId: string, id: string) {
+    const value = this.store.state.orcfloTriggers.get(id);
+    return value?.tenantId === tenantId ? copy(value) : null;
+  }
+  async findPublicBySlug(slug: string) {
+    const value = [...this.store.state.orcfloTriggers.values()]
+      .find((trigger) => trigger.kind === 'public' && trigger.config.slug === slug);
+    return value ? copy(value) : null;
+  }
+  async save(value: OrcfloTrigger) {
+    assertTenantOwnership(this.store.state.orcfloTriggers.get(value.id), value);
+    this.store.state.orcfloTriggers.set(value.id, copy(value));
+  }
+  async list(tenantId: string, options: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean } = {}) {
+    return [...this.store.state.orcfloTriggers.values()]
+      .filter((trigger) => (
+        trigger.tenantId === tenantId
+        && (options.kind === undefined || trigger.kind === options.kind)
+        && (options.enabledOnly !== true || trigger.enabled)
+      ))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map(copy);
+  }
+  async listAll(options: { kind?: OrcfloTrigger['kind']; enabledOnly?: boolean; limit?: number } = {}) {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(options.limit ?? 1_000), 10_000));
+    return [...this.store.state.orcfloTriggers.values()]
+      .filter((trigger) => (
+        (options.kind === undefined || trigger.kind === options.kind)
+        && (options.enabledOnly !== true || trigger.enabled)
+      ))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
+}
+
+export class InMemoryOrcfloBlueprintRepository implements OrcfloBlueprintRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+  async findById(tenantId: string, id: string) {
+    const value = this.store.state.orcfloBlueprints.get(id);
+    return value?.tenantId === tenantId ? copy(value) : null;
+  }
+  async save(value: OrcfloBlueprint) {
+    assertTenantOwnership(this.store.state.orcfloBlueprints.get(value.id), value);
+    this.store.state.orcfloBlueprints.set(value.id, copy(value));
+  }
+  async list(tenantId: string) {
+    return [...this.store.state.orcfloBlueprints.values()]
+      .filter((blueprint) => blueprint.tenantId === tenantId)
+      .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
       .map(copy);
   }
 }
