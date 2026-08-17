@@ -11,9 +11,9 @@
   AGENT_RUNTIME_SPEC.md        -> Agent runtime target (autonomous decision-makers)
   TOOL_AND_MCP_SPEC.md         -> Tool/MCP capability layer target (the "hands")
   VOICE_VISION_SPEC.md         -> Voice/vision multimodal interface target
-  EXECUTION_KERNEL_SPEC.md     -> PENDING — referenced by every spec's "Depends On";
-                                  not yet provided; the existing Orcflo engine and
-                                  docs/verification/ are the current kernel evidence
+  EXECUTION_KERNEL_SPEC.md     -> The canonical execution substrate every surface
+                                  converges on; reference implementation: the
+                                  Orcflo engine (ADR-002)
 ```
 
 ---
@@ -98,4 +98,4 @@ The current-state compliance snapshot per section lives in the verification docs
 - `docs/ARCHITECTURE_DECISIONS.md` — canonical ADR register.
 - `docs/CODE_AGENT_MASTER_PROMPT.md` — engineering control prompt for the coding agent.
 - `docs/verification/` — dated verification evidence (PostgreSQL, capability, Orcflo engine, workflow-runtime bridge).
-- `EXECUTION_KERNEL_SPEC.md` — pending (referenced by every spec's `Depends On`; not yet provided).
+- `docs/EXECUTION_KERNEL_SPEC.md` — the canonical execution substrate contract; reference implementation is the Orcflo engine.
