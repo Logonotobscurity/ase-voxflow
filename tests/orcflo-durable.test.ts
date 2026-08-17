@@ -158,6 +158,39 @@ describe('Durable execution — resumable approval (§49)', () => {
     expect(harness.handlerCalls.filter((call) => call.nodeId === 'merge').length).toBe(1);
   });
 
+  it('resumes from an approval AFTER a completed loop (loop done, not active)', async () => {
+    const harness = buildOrcfloHarness();
+    const workflow = orcfloWorkflowFixture({}, [
+      { id: 'each', type: 'for_each', label: 'Each', configuration: { collection: 'items' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+      { id: 'process', type: 'action', label: 'Process', configuration: { executionMode: 'demo' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+      { id: 'approve', type: 'human_approval', label: 'Approve', configuration: {}, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+      { id: 'done', type: 'action', label: 'Done', configuration: { executionMode: 'demo' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+    ]);
+    workflow.edges = [
+      { id: 'e1', source: 'start', target: 'each', metadata: {} },
+      { id: 'e2', source: 'each', target: 'process', metadata: {} },
+      { id: 'e3', source: 'process', target: 'each', loop: true, metadata: {} },
+      { id: 'e4', source: 'each', target: 'approve', loopExit: true, metadata: {} },
+      { id: 'e5', source: 'approve', target: 'done', metadata: {} },
+    ];
+    await harness.ports.workflows.save(workflow);
+
+    const paused = await harness.engine.startRun({
+      workflowId: 'workflow_orcflo',
+      context: APPROVER_CONTEXT,
+      input: { items: ['x', 'y'] },
+    });
+    expect(paused.status).toBe('WAITING_APPROVAL');
+    // The loop completed: last for_each step is done:true.
+    const eachSteps = paused.steps.filter((step) => step.nodeId === 'each' && step.status === 'COMPLETED');
+    expect(eachSteps.at(-1)?.output).toMatchObject({ done: true, processed: 2 });
+
+    const resumed = await harness.engine.decideApproval(APPROVER_CONTEXT, paused.id, 'APPROVED');
+    expect(resumed.status).toBe('COMPLETED');
+    expect(resumed.steps.find((step) => step.nodeId === 'done')?.status).toBe('COMPLETED');
+    expect(harness.handlerCalls.filter((call) => call.nodeId === 'process').length).toBe(2);
+  });
+
   it('rejects resuming inside an active for_each loop with a clear error', async () => {
     const harness = buildOrcfloHarness();
     const workflow = orcfloWorkflowFixture({}, [

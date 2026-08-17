@@ -846,14 +846,16 @@ export class OrcfloEngine {
       }
     }
     // Active-loop guard: a for_each head still mid-iteration cannot be
-    // resumed without a persisted checkpoint.
+    // resumed without a persisted checkpoint. The loop is "active" only
+    // when the LAST completed for_each step is a non-done emit (a later
+    // done:true step means the loop finished and its exit was taken).
     for (const node of nodeById.values()) {
       if (node.type !== 'for_each') continue;
-      const lastEmitted = [...run.steps]
-        .reverse()
-        .find((step) => step.nodeId === node.id && step.status === 'COMPLETED'
-          && (step.output as { done?: boolean } | undefined)?.done === false);
-      if (lastEmitted) {
+      const forEachSteps = run.steps.filter(
+        (step) => step.nodeId === node.id && step.status === 'COMPLETED',
+      );
+      const lastEmit = forEachSteps.at(-1);
+      if (lastEmit && (lastEmit.output as { done?: boolean } | undefined)?.done === false) {
         throw new PlatformError(
           'WORKFLOW_ERROR',
           `Resuming a run paused inside an active for_each loop (node ${node.id}) is not yet supported.`,
