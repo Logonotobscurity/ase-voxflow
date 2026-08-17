@@ -213,3 +213,12 @@ Verified: lint + strict typecheck + 243 tests (8 new claim/lease tests: batch cl
 - **Env documentation completed.** `.env.example` now documents `ASE_RUN_TICK_INTERVAL_MS`, `ASE_SCHEDULE_TICK_INTERVAL_MS`, and the public-interface tenant caps (the worker tick vars were previously code-only).
 
 Verified: lint + strict typecheck + 246 tests (2 new hardening tests: per-IP limiting independent of the interface cap, aggregate tenant cap across interfaces) + optimized 40-route build; `npm audit --omit=dev` = 0 vulnerabilities.
+
+## 22. Follow-up increment — route architecture specification + Route Completion Contract
+
+Added the frontend route-by-route implementation map (documentation only):
+
+- **`docs/ROUTE_ARCHITECTURE_SPEC.md`** — VOXFLOW Route Architecture v1.0 (43 sections + the Route Completion Contract): the full Next.js App Router target map (`/`, `/product/*`, `/solutions/*`, `/blueprints`, `/developers/*`, `/docs/*`, `/app/*` incl. dashboard/workflows/agents/tools/mcp/runs/approvals/blueprints/schedules/connections/knowledge/settings/team/usage/audit, `/run/[executionId]`, `/share/[workflowId]`, `/api/v1`), with per-route purposes and next-action checklists, the Route → Domain Ownership map (Workflow Domain / Agent Runtime / Tool Layer / Execution Kernel / Governance / Scheduler / Event Infrastructure), the 7-wave page build order, and the "frontend never owns domain state" rule. A status header records the current-state route surface honestly (marketing + `/app/canvas`, `/app/voice`, `/app/vendors`) so the map is a target, not a claim.
+- **`docs/CODE_AGENT_MASTER_PROMPT.md` §68** — the Route Completion Contract: a route is complete only when route ownership, domain ownership, source of truth, data contract, loading/empty/error/permission/success states, mutation behavior, backend integration, mobile, accessibility, tests, and runtime verification all exist; the frontend must never fabricate backend state (mock data only in explicit demo/mock mode).
+
+`docs/DEVELOPMENT_SPEC.md` and `docs/ARCHITECTURE.md` §5 now index/link the route spec. Verified: fence balance; section integrity (master prompt now 00–68); markdown only, no code impact.

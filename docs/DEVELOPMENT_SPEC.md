@@ -14,6 +14,9 @@
   EXECUTION_KERNEL_SPEC.md     -> The canonical execution substrate every surface
                                   converges on; reference implementation: the
                                   Orcflo engine (ADR-002)
+  ROUTE_ARCHITECTURE_SPEC.md   -> Route-by-route frontend implementation map:
+                                  surfaces over the same domain primitives,
+                                  never independent owners of backend state
 ```
 
 ---
@@ -72,6 +75,7 @@ The engineering target is organized as one directive plus three runtime-domain s
 - **Workflows** (`docs/WORKFLOW-ENGINE-DIRECTIVE.md`, 56 sections) — the workflow runtime target; compliance map in `docs/verification/workflow-runtime-bridge-2026-08-16.md`.
 - **Agents** (`docs/AGENT_RUNTIME_SPEC.md`) — bounded autonomous decision-makers: goals vs instructions vs constraints vs success criteria, autonomy levels, planner/action proposals, tool selection through the registry, memory divided by purpose, structured handoffs, failure classification/recovery, and termination guarantees. Agents reason; the kernel governs.
 - **Tools & MCP** (`docs/TOOL_AND_MCP_SPEC.md`) — the canonical capability layer: one tool abstraction across agents/workflows/voice/vision, validated inputs/outputs, risk + permissions, provider adapters, SmartProxy-style HTTP infrastructure (protected fetch, batch, pooling, rate limits, circuit breaking, error normalization) as infrastructure rather than a second architecture, MCP through the tool registry with trust classification, dynamic tool creation through the same governance, and transactions as a stronger-than-tools abstraction.
+- **Routes** (`docs/ROUTE_ARCHITECTURE_SPEC.md`) — the Next.js App Router surface as a route-by-route implementation map over the same domain primitives (Execution Kernel, Agent Runtime, Tool/MCP layer, Governance, Scheduler), with the Route Completion Contract in the master prompt (§68).
 - **Voice & Vision** (`docs/VOICE_VISION_SPEC.md`) — multimodal interfaces into the same kernel: Pipecat as the canonical voice framework (local Whisper STT adapter, deterministic voice command processor, participant-scoped transcription, barge-in, background audio), provider-agnostic TTS with the provider explicitly unresolved (Coqui XTTS prohibited), vision as structured perception (camera/screen/OCR/document), LiveKit as transport only where adopted, and privacy/retention/licensing controls.
 
 The current-state compliance snapshot per section lives in the verification docs; the reference implementation of the kernel is the Orcflo engine (ADR-002).
@@ -95,6 +99,7 @@ The current-state compliance snapshot per section lives in the verification docs
 - `docs/AGENT_RUNTIME_SPEC.md` — agent runtime specification v1.0 (bounded autonomous decision-makers).
 - `docs/TOOL_AND_MCP_SPEC.md` — tool & MCP specification v1.0 (canonical capability layer).
 - `docs/VOICE_VISION_SPEC.md` — voice & vision specification v1.0 (multimodal interfaces).
+- `docs/ROUTE_ARCHITECTURE_SPEC.md` — route architecture specification v1.0 (route-by-route implementation map + route completion contract).
 - `docs/ARCHITECTURE_DECISIONS.md` — canonical ADR register.
 - `docs/CODE_AGENT_MASTER_PROMPT.md` — engineering control prompt for the coding agent.
 - `docs/verification/` — dated verification evidence (PostgreSQL, capability, Orcflo engine, workflow-runtime bridge).

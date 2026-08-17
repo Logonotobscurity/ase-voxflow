@@ -1730,3 +1730,33 @@ Therefore:
 This is the engineering contract of VOXFLOW.
 
 Everything built in this repository should strengthen that loop.
+
+---
+
+# 68. ROUTE COMPLETION CONTRACT
+
+A route is not complete when its visual design exists.
+
+For every route, the implementation agent must establish:
+
+1. Route ownership
+2. Domain ownership
+3. Source of truth
+4. Data contract
+5. Loading state
+6. Empty state
+7. Error state
+8. Permission state
+9. Success state
+10. Mutation behavior
+11. Backend integration
+12. Mobile behavior
+13. Accessibility
+14. Tests
+15. Runtime verification
+
+The frontend must never fabricate backend state to make a route appear complete.
+
+Mock data may only be used where the route explicitly operates in demo/mock mode.
+
+The canonical route-by-route implementation map is `docs/ROUTE_ARCHITECTURE_SPEC.md`; every route is a surface over the same domain primitives (Route → Domain Ownership, §40–§42 of that spec), never an independent owner of backend state.
