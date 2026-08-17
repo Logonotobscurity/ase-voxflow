@@ -250,3 +250,16 @@ Implemented build wave 2 of `docs/ROUTE_ARCHITECTURE_SPEC.md` §41 as real surfa
 - **AppShell** — Agents added to the primary nav.
 
 Verified: lint + strict typecheck + 258 tests (4 new agent-route tests) + optimized build (3 new routes) + live HTTP smoke (registry + builder 200; API create → REGISTERED v1; detail page 200; list returns the agent).
+
+## 25. Follow-up increment — Route Architecture Wave 3 (tool system)
+
+Implemented build wave 3 of `docs/ROUTE_ARCHITECTURE_SPEC.md` §41 as real surfaces over the Tool/MCP layer:
+
+- **`GET /api/v1/tools`** — the Tool domain API (Route → Domain Ownership: /api/v1/tools → Tool Layer): lists the tenant's canonical ToolDefinition records (the same ones agents/workflows resolve through the single tool executor), enforcing `tool:read`.
+- **`GET /api/v1/mcp/servers`** — the MCP control-plane read API: returns the tenant's registered servers from the platform's McpServerRegistry — today the fail-closed empty registry (no MCP transport exists), so this honestly returns `[]`.
+- **`/app/tools`** — tool registry (spec §24): real tools with risk level, availability, cost, timeout, permissions, workflow-as-tool provenance, search + risk filters, loading/empty/error states.
+- **`/app/mcp`** — MCP control plane (spec §25): the trust model (TRUSTED/VERIFIED/UNVERIFIED/BLOCKED) and an honest empty state — "no MCP servers configured; no transport implemented" — with the explicit rule that the UI is never the MCP execution layer.
+- **`/app/connections`** — external connections (spec §32): honest target state. No connections domain exists, so the page shows the connector categories (Salesforce/SAP/Google/Slack/MCP/Custom APIs) as "Not configured" with the platform guarantee that secrets are never exposed — no fabricated "Connected" status.
+- **AppShell** — Tools + MCP added to the primary nav.
+
+Verified: lint + strict typecheck + 261 tests (3 new tool/MCP route tests: empty registry → workflow-as-tool registration appears; tool:read enforcement; fail-closed empty MCP list) + optimized build (5 new routes) + live HTTP smoke (all 3 pages 200; registered workflow tool listed with risk MEDIUM; MCP servers 0).

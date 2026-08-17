@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bot, ChevronDown, LayoutDashboard, PlaySquare, Workflow } from 'lucide-react';
+import { Bot, Boxes, Cable, ChevronDown, LayoutDashboard, PlaySquare, Workflow } from 'lucide-react';
 
 const NAV = [
   { href: '/app/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/app/workflows', label: 'Workflows', icon: Workflow },
   { href: '/app/agents', label: 'Agents', icon: Bot },
+  { href: '/app/tools', label: 'Tools', icon: Boxes },
+  { href: '/app/mcp', label: 'MCP', icon: Cable },
   { href: '/app/runs', label: 'Runs', icon: PlaySquare },
 ];
 
