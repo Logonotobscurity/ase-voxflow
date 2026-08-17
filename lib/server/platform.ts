@@ -326,7 +326,10 @@ export function getPlatform(): PlatformApplication {
     orcflo: orcfloEngine,
     triggers: triggerService,
     blueprints: new OrcfloBlueprintService(orcfloPorts),
-    publicInterfaces: new OrcfloPublicInterfaceService(orcfloPorts, orcfloEngine, clock),
+    publicInterfaces: new OrcfloPublicInterfaceService(orcfloPorts, orcfloEngine, clock, {
+      tenantRateLimitPerMinute: Number.parseInt(process.env.ASE_PUBLIC_TENANT_RATE_PER_MINUTE ?? '100', 10),
+      tenantMaxRunsPerDay: Number.parseInt(process.env.ASE_PUBLIC_TENANT_MAX_RUNS_PER_DAY ?? '1000', 10),
+    }),
     runDispatcher,
     scheduleDispatcher,
     runEventBus,

@@ -159,6 +159,40 @@ describe('Public interfaces (§34) — anonymous invocation', () => {
       .rejects.toMatchObject({ code: 'RATE_LIMITED' });
   });
 
+  it('rate limits per caller IP independently of the interface cap (§34 hardening)', async () => {
+    const harness = publicHarness();
+    const created = await seedInterface(harness, { rateLimitPerMinute: 20, rateLimitPerIpPerMinute: 2 });
+    const slug = slugOf(created);
+    await harness.service.runPublic(slug, { input: {} }, { ip: '203.0.113.7' });
+    await harness.service.runPublic(slug, { input: {} }, { ip: '203.0.113.7' });
+    // Third request from the same IP is limited even though the interface
+    // budget (20/min) still has room for other callers.
+    await expect(harness.service.runPublic(slug, { input: {} }, { ip: '203.0.113.7' }))
+      .rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    // A different IP is still allowed.
+    const ok = await harness.service.runPublic(slug, { input: {} }, { ip: '198.51.100.9' });
+    expect(ok.status).toBe('COMPLETED');
+  });
+
+  it('enforces aggregate tenant caps across interfaces (§34 hardening)', async () => {
+    const harness = publicHarness();
+    const service = new OrcfloPublicInterfaceService(
+      harness.ports,
+      harness.engine,
+      harness.clock,
+      { tenantRateLimitPerMinute: 3, tenantMaxRunsPerDay: 1000 },
+    );
+    await harness.ports.workflows.save(orcfloWorkflowFixture());
+    const a = await service.create(orcfloActorContext, { workflowId: 'workflow_orcflo', name: 'Form A', config: {} });
+    const b = await service.create(orcfloActorContext, { workflowId: 'workflow_orcflo', name: 'Form B', config: {} });
+    await service.runPublic(slugOf(a), { input: {} }, { ip: '10.0.0.1' });
+    await service.runPublic(slugOf(b), { input: {} }, { ip: '10.0.0.2' });
+    await service.runPublic(slugOf(a), { input: {} }, { ip: '10.0.0.3' });
+    // Fourth request across the tenant hits the aggregate cap.
+    await expect(service.runPublic(slugOf(b), { input: {} }, { ip: '10.0.0.4' }))
+      .rejects.toMatchObject({ code: 'RATE_LIMITED' });
+  });
+
   it('resets the minute window after 60 seconds', async () => {
     const harness = publicHarness('2026-08-14T10:00:00.000Z');
     const created = await seedInterface(harness, { rateLimitPerMinute: 1 });

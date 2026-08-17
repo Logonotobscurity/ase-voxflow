@@ -16,6 +16,7 @@ const PublicInterfaceSchema = z.object({
       default: z.unknown().optional(),
     }).strict()).optional(),
     rateLimitPerMinute: z.number().int().min(1).max(1_000).optional(),
+    rateLimitPerIpPerMinute: z.number().int().min(1).max(1_000).optional(),
     maxRunsPerDay: z.number().int().min(1).max(100_000).optional(),
     maxCostMinor: z.number().int().nonnegative().max(100_000_000).optional(),
     maxDurationMs: z.number().int().min(100).max(120_000).optional(),

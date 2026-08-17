@@ -39,6 +39,12 @@ export class OrcfloPublicInterfaceService {
     private readonly ports: OrcfloRuntimePorts,
     private readonly engine: OrcfloEngine,
     private readonly clock: Clock,
+    private readonly options: {
+      /** §34 hardening — aggregate per-tenant per-minute cap across all interfaces. */
+      tenantRateLimitPerMinute?: number;
+      /** §34 hardening — aggregate per-tenant daily run cap across all interfaces. */
+      tenantMaxRunsPerDay?: number;
+    } = {},
   ) {}
 
   /** Create a public interface for a READY workflow (auth'd, workflow:write). */
@@ -105,6 +111,7 @@ export class OrcfloPublicInterfaceService {
   async runPublic(
     slug: string,
     body: { input?: Record<string, unknown>; idempotencyKey?: string },
+    options: { ip?: string } = {},
   ): Promise<OrcfloRun> {
     const trigger = await this.ports.triggers.findPublicBySlug(slug);
     if (!trigger || trigger.kind !== 'public' || !trigger.enabled) {
@@ -125,7 +132,7 @@ export class OrcfloPublicInterfaceService {
     // 2. Abuse limits (§34 rate limiting / run limits / abuse prevention).
     //    Only valid submissions consume tokens; validation already
     //    bounds malformed traffic without starting runs.
-    this.enforceLimits(trigger, config, now);
+    this.enforceLimits(trigger, config, now, options.ip);
 
     // 3. Idempotency (§48) — explicit key wins; otherwise derived from
     //    (trigger, payload) so a double-submitted form replays.
@@ -160,8 +167,36 @@ export class OrcfloPublicInterfaceService {
     return run;
   }
 
-  private enforceLimits(trigger: OrcfloTrigger, config: PublicTriggerConfig, now: number): void {
-    const key = `${trigger.tenantId}:${trigger.id}`;
+  private enforceLimits(trigger: OrcfloTrigger, config: PublicTriggerConfig, now: number, ip?: string): void {
+    // Per-interface caps (existing behavior).
+    this.checkAndConsume(`${trigger.tenantId}:${trigger.id}`, now, config.rateLimitPerMinute, config.maxRunsPerDay,
+      `Public interface ${trigger.id}`);
+
+    // §34 hardening — per-IP cap (smallest appropriate scope): one IP
+    // may not exceed the interface's per-minute limit on its own.
+    if (ip && ip.trim() !== '') {
+      this.checkAndConsume(`${trigger.tenantId}:${trigger.id}:ip:${ip.trim()}`, now, config.rateLimitPerIpPerMinute, config.maxRunsPerDay,
+        `Public interface ${trigger.id} from IP ${ip.trim()}`);
+    }
+
+    // §34 hardening — aggregate per-tenant caps across all interfaces.
+    const tenantMinute = this.options.tenantRateLimitPerMinute;
+    const tenantDay = this.options.tenantMaxRunsPerDay;
+    if (tenantMinute !== undefined || tenantDay !== undefined) {
+      this.checkAndConsume(`${trigger.tenantId}`, now,
+        tenantMinute ?? Number.MAX_SAFE_INTEGER,
+        tenantDay ?? Number.MAX_SAFE_INTEGER,
+        `Tenant ${trigger.tenantId}`);
+    }
+  }
+
+  private checkAndConsume(
+    key: string,
+    now: number,
+    minuteCap: number,
+    dayCap: number,
+    label: string,
+  ): void {
     const state = this.rateState.get(key) ?? { minuteStart: now, minuteCount: 0, dayStart: now, dayCount: 0 };
     if (now - state.minuteStart >= 60_000) {
       state.minuteStart = now;
@@ -171,17 +206,11 @@ export class OrcfloPublicInterfaceService {
       state.dayStart = now;
       state.dayCount = 0;
     }
-    if (state.minuteCount >= config.rateLimitPerMinute) {
-      throw new PlatformError(
-        'RATE_LIMITED',
-        `Public interface ${trigger.id} exceeded its per-minute run limit (${config.rateLimitPerMinute}).`,
-      );
+    if (state.minuteCount >= minuteCap) {
+      throw new PlatformError('RATE_LIMITED', `${label} exceeded its per-minute run limit (${minuteCap}).`);
     }
-    if (state.dayCount >= config.maxRunsPerDay) {
-      throw new PlatformError(
-        'RATE_LIMITED',
-        `Public interface ${trigger.id} exceeded its daily run limit (${config.maxRunsPerDay}).`,
-      );
+    if (state.dayCount >= dayCap) {
+      throw new PlatformError('RATE_LIMITED', `${label} exceeded its daily run limit (${dayCap}).`);
     }
     state.minuteCount += 1;
     state.dayCount += 1;

@@ -74,7 +74,7 @@ This table is the resolved source of truth. Any reversal must first be added to 
 | Implement deterministic branch evaluation and connect `agent` workflow nodes. | Branch coverage, persisted decisions, bounded-runtime wiring, and observable evidence. | **Workflow Runtime Owner** | RESOLVED (2026-08-16): `agent` workflow nodes execute through the canonical `BoundedAgentRuntime`; deterministic conditions/routers/bounded loops, wave-based parallel execution, and persisted decision records (`OrcfloDecisionRecord` + `GET /runs/:runId/decisions`) are implemented in the Orcflo engine. |
 | Add production rate limits, secret management, retention enforcement, and audit export. | Threat model, configured limits, rotation, deletion/export evidence, and operations runbooks. | **Platform Security Owner** | ⚠️ UNRESOLVED |
 | Select telemetry backend and alert thresholds. | OpenTelemetry export, error-rate/pool/latency/queue/outbox dashboards, SLOs, and alert tests. | **SRE & Observability Owner** | ⚠️ UNRESOLVED |
-| Resolve three high npm audit findings through a controlled framework upgrade. | Next.js 16 compatibility plan and full build/API/browser/security regression. | **Release Engineering Owner** | ⚠️ UNRESOLVED |
+| Resolve npm audit findings through a controlled framework upgrade. | Next.js 16 compatibility plan and full build/API/browser/security regression. | **Release Engineering Owner** | PARTIALLY RESOLVED (2026-08-17): the three high production advisories (PostCSS, Sharp via Next.js) are mitigated to 0 findings via package `overrides` pinning patched `postcss`/`sharp`; the breaking Next.js 16 upgrade remains deferred pending the controlled compatibility plan. |
 | Complete browser accessibility and responsive automation. | Supported browser runner, keyboard/focus/touch/viewport checks, and captured results. | **Frontend Quality Owner** | ⚠️ UNRESOLVED |
 
 ## 4. Active multi-tool component fork status
@@ -286,7 +286,7 @@ The live run found and fixed two issues before passing: an untrusted self-signed
 
 The reproducible HTTP harness is `scripts/http-smoke.py`; its base URL and expected persistence label are environment-configurable. The live integration suite is opt-in with `RUN_POSTGRES_INTEGRATION=1` and a reviewed test `DATABASE_URL`.
 
-`npm audit --omit=dev` still reports three high production findings through Next.js/PostCSS/Sharp; npm proposes a breaking Next.js 16.3.1 upgrade. No forced upgrade was applied. The earlier `@prisma/streams-local` Node 20 engine warning did not prevent the live adapter tests, but it remains dependency metadata to revisit during the controlled framework/runtime upgrade.
+`npm audit --omit=dev` reports **0 vulnerabilities** as of 2026-08-17: the three high production findings (Next.js/PostCSS/Sharp) were mitigated without the breaking upgrade by pinning patched `postcss` (8.5.26) and `sharp` (0.35.3) via package `overrides`. The breaking Next.js 16.3.1 upgrade remains deferred pending the controlled compatibility plan. The earlier `@prisma/streams-local` Node 20 engine warning did not prevent the live adapter tests, but it remains dependency metadata to revisit during the controlled framework/runtime upgrade.
 
 ## 11. Known architectural limitations
 
@@ -307,7 +307,7 @@ The reproducible HTTP harness is `scripts/http-smoke.py`; its base URL and expec
 - Demo headers remain spoofable by design and are refused outside demo mode.
 - Marketing, marketplace, vendor, chat, voice, video, and avatar previews are not operational provider evidence.
 - Media rooms/PTT, background audio, multi-user transcription, dynamic runtime tools, MCP execution, expressive TTS, telephony, real avatars, Gemini Live Vision, and restaurant ordering are unavailable or `UNVERIFIED`; see `docs/verification/agent-capability-audit-2026-08-14.md`.
-- Three high npm audit findings remain pending a controlled framework compatibility/security upgrade.
+- npm audit is at 0 findings (patched `postcss`/`sharp` pinned via `overrides`); the breaking Next.js 16 upgrade remains deferred pending a controlled compatibility/security regression.
 
 ## 12. Next improvements
 

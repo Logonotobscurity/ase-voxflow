@@ -350,6 +350,8 @@ export const PublicTriggerConfigSchema = z.object({
   slug: z.string().regex(/^pub_[a-z0-9_-]{8,64}$/).optional(),
   inputSchema: z.record(z.string(), PublicInputFieldSchema).default({}),
   rateLimitPerMinute: z.number().int().min(1).max(1_000).default(10),
+  /** §34 hardening — per-caller-IP per-minute cap; independent of the interface cap. */
+  rateLimitPerIpPerMinute: z.number().int().min(1).max(1_000).default(5),
   maxRunsPerDay: z.number().int().min(1).max(100_000).default(100),
   maxCostMinor: z.number().int().nonnegative().max(100_000_000).default(100_000),
   maxDurationMs: z.number().int().min(100).max(120_000).default(30_000),

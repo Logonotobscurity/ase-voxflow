@@ -24,7 +24,11 @@ export async function POST(
     const body = await request.json().catch(() => ({}));
     const parsed = PublicRunSchema.parse(body);
     const platform = getPlatform();
-    const run = await platform.publicInterfaces.runPublic(slug, parsed);
+    // §34 hardening — best-effort caller IP for per-IP limiting. Derived
+    // from proxy headers only; absent in direct connections.
+    const forwarded = request.headers.get('x-forwarded-for');
+    const ip = forwarded?.split(',')[0]?.trim() || request.headers.get('x-real-ip')?.trim() || undefined;
+    const run = await platform.publicInterfaces.runPublic(slug, parsed, { ip });
     return apiSuccess({ run, persistence: platform.persistence }, 202);
   } catch (error) {
     return apiError(error);
