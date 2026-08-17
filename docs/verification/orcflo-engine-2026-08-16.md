@@ -263,3 +263,18 @@ Implemented build wave 3 of `docs/ROUTE_ARCHITECTURE_SPEC.md` §41 as real surfa
 - **AppShell** — Tools + MCP added to the primary nav.
 
 Verified: lint + strict typecheck + 261 tests (3 new tool/MCP route tests: empty registry → workflow-as-tool registration appears; tool:read enforcement; fail-closed empty MCP list) + optimized build (5 new routes) + live HTTP smoke (all 3 pages 200; registered workflow tool listed with risk MEDIUM; MCP servers 0).
+
+## 26. Follow-up increment — Route Architecture Wave 4 (governance)
+
+Implemented build wave 4 of `docs/ROUTE_ARCHITECTURE_SPEC.md` §41 as real surfaces over authoritative domain data:
+
+- **`GET /api/v1/events`** — audit trail API (Route → Domain Ownership: /events → Event Infrastructure): the tenant's domain events in reverse-chronological order from the event log (the transactional-outbox envelope), enforcing `workflow:read`. New `EventLog.listByTenant` port + memory/prisma implementations.
+- **`GET /api/v1/team/members`** — team API: the tenant-membership authority (Audit §1 — the same records request reconciliation checks); new `TenantMembershipRepository.listForTenant`.
+- **`GET /api/v1/orcflo/metering/records`** — raw metering records for the usage breakdown (analytics derived from records, never unrelated counters); new `OrcfloEngine.listMeteringRecords`.
+- **`/app/approvals`** — human intervention inbox (spec §29): waiting runs (WAITING_APPROVAL) with Approve/Reject through the governance API, decided runs with decision/decider/time, honest permission notice for the demo BUILDER identity.
+- **`/app/usage`** — usage & cost (spec §34): real metering summary KPIs (runs, steps, model calls, tokens, cost, cache) + the raw records table; budgets/projection/alerts flagged as target state.
+- **`/app/audit`** — enterprise audit trail (spec §36): real domain events with event-type filters, actor/aggregate/correlation — from the authoritative backend log, never a UI copy.
+- **`/app/team`** — team & RBAC (spec §35): real memberships with roles from the membership authority; groups/invitations flagged as target state.
+- **AppShell** — Approvals / Usage / Audit / Team added to the (now scrollable) primary nav.
+
+Verified: lint + strict typecheck + 264 tests (3 new governance-route tests: events list, team members incl. roles, metering records) + optimized build (7 new routes) + live HTTP smoke (all 4 pages 200; seeded approval-paused run appears in the data; team lists actor_ada BUILDER + actor_approver APPROVER; audit serves orcflo.run.started + orcflo.run.approval_requested).

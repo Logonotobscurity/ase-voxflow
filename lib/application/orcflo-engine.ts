@@ -1001,6 +1001,14 @@ export class OrcfloEngine {
 
   // --- Metering ---
 
+  async listMeteringRecords(
+    context: ActorContext,
+    options: { since?: string; limit?: number } = {},
+  ): Promise<import('../domain/orcflo').OrcfloMeteringRecord[]> {
+    this.assertRead(context);
+    return this.ports.metering.list(context.tenantId, options);
+  }
+
   async meteringSummary(context: ActorContext, since?: string): Promise<OrcfloMeteringSummary> {
     this.assertRead(context);
     const records = await this.ports.metering.list(context.tenantId, since ? { since } : {});

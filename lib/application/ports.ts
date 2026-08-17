@@ -105,6 +105,11 @@ export interface EventLog {
   /** Append only to the event log; callers normally use publish. */
   append(event: DomainEvent): Promise<void>;
   listByCorrelation(tenantId: string, correlationId: string): Promise<DomainEvent[]>;
+  /**
+   * Audit trail — recent tenant events in reverse-chronological order
+   * (the authoritative source /app/audit consumes; not UI-owned state).
+   */
+  listByTenant(tenantId: string, options?: { limit?: number }): Promise<DomainEvent[]>;
 }
 
 export interface OutboxRepository {
@@ -202,6 +207,8 @@ export interface TenantMembership {
 export interface TenantMembershipRepository {
   find(tenantId: string, actorId: string): Promise<TenantMembership | null>;
   listForActor(actorId: string): Promise<TenantMembership[]>;
+  /** Team surface — the tenant's members and roles (RBAC source of truth). */
+  listForTenant(tenantId: string): Promise<TenantMembership[]>;
   upsert(membership: TenantMembership): Promise<void>;
 }
 

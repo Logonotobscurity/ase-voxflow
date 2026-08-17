@@ -465,6 +465,15 @@ export class PrismaEventStore implements EventPublisher, EventLog {
     });
     return rows.map(mapEvent);
   }
+  async listByTenant(tenantId: string, options: { limit?: number } = {}) {
+    const take = Math.max(1, Math.min(Math.trunc(options.limit ?? 200), 2_000));
+    const rows = await this.prisma.domainEvent.findMany({
+      where: { tenantId },
+      orderBy: { occurredAt: 'desc' },
+      take,
+    });
+    return rows.map(mapEvent);
+  }
 }
 
 export function createPrismaPersistencePorts(

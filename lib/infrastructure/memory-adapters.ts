@@ -350,6 +350,14 @@ export class InMemoryEventBus implements EventPublisher, EventLog {
       .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
       .map(copy);
   }
+  async listByTenant(tenantId: string, options: { limit?: number } = {}) {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(options.limit ?? 200), 2_000));
+    return [...this.store.state.events.values()]
+      .filter((event) => event.tenantId === tenantId)
+      .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+      .slice(0, safeLimit)
+      .map(copy);
+  }
 }
 
 /**
@@ -449,6 +457,11 @@ export class InMemoryTenantMembershipRepository implements TenantMembershipRepos
   async listForActor(actorId: string) {
     return [...this.store.state.memberships.values()]
       .filter((m) => m.actorId === actorId)
+      .map(copy);
+  }
+  async listForTenant(tenantId: string) {
+    return [...this.store.state.memberships.values()]
+      .filter((m) => m.tenantId === tenantId)
       .map(copy);
   }
 
