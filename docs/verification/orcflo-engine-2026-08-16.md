@@ -238,3 +238,15 @@ Implemented the first build wave of `docs/ROUTE_ARCHITECTURE_SPEC.md` §41 as re
 Shared infra: `components/AppShell` (top bar over scrolling main), `components/client-api` (stable error envelope), `components/app-format` (pure, unit-tested formatting helpers), and a Wave-1 CSS block in `app/globals.css` (KPI grid, tables, states, creation modes, observatory layout, mobile breakpoint).
 
 Verified: lint + strict typecheck + 254 tests (8 new: 3 workflow-detail route tests incl. tenant isolation + 5 formatting-helper tests) + optimized build with all 6 new routes + live HTTP smoke (every page 200; seeded workflow → async run COMPLETED → detail + observatory render, decision record `router → {route:"a"}` served). Client pages render the shell + loading state server-side and hydrate real data client-side, per the Route Completion Contract.
+
+## 24. Follow-up increment — Route Architecture Wave 2 (agent system)
+
+Implemented build wave 2 of `docs/ROUTE_ARCHITECTURE_SPEC.md` §41 as real surfaces over a new Agent domain API, per the Route Completion Contract:
+
+- **`GET/POST /api/v1/agents` + `GET /api/v1/agents/:agentId`** — the Agent Runtime domain API (Route → Domain Ownership: /api/v1/agents → Agent Runtime). Create validates against the canonical `AgentCreateSchema` (goals, instructions, tools, permissions, policies), persists a REGISTERED agent, and enforces `agent:write`/`agent:read`. 4 route tests: create+list, detail + tenant isolation, role permissions (VIEWER reads, cannot write), validation.
+- **`/app/agents`** — agent registry (spec §21): real agents with status/role/tools/budget, search, empty + error + loading states.
+- **`/app/agents/new`** — agent builder (spec §22): schema-backed form (identity, objective, instructions, tools, permissions, capabilities, environments, limits: iterations/duration/budget) that creates a real agent; comma-list tool/permission entry in this wave (a registry-backed selector is Wave 3).
+- **`/app/agents/[agentId]`** — agent command center (spec §23): structured identity, objective, instructions, authority (tools/permissions/capabilities/environments/data), limits & budget, and an explicit "how this agent executes" panel — no raw chain-of-thought is stored or exposed.
+- **AppShell** — Agents added to the primary nav.
+
+Verified: lint + strict typecheck + 258 tests (4 new agent-route tests) + optimized build (3 new routes) + live HTTP smoke (registry + builder 200; API create → REGISTERED v1; detail page 200; list returns the agent).
