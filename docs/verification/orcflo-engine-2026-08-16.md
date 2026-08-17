@@ -182,3 +182,16 @@ The Execution Kernel's async boundary is now implemented:
 Migration `20260816233000_orcflo_durable_execution` adds `actorId`/`role`/`environment`/`limits`/`approval` to `OrcfloRun` — verified on PostgreSQL 16 (PGlite): durable-field JSON round-trip + PENDING query.
 
 Verified: lint + strict typecheck + 231 tests (8 durable + 2 route tests: async PENDING→worker→COMPLETED, bus event delivery, executeRun idempotency, approve→resume→complete incl. parallel-branch merge-once, reject→cancel, approval RBAC, active-loop resume rejection, cross-tenant schedule drain) + optimized 39-route build + live HTTP smoke (async queued run auto-completed; approval flow with `run.resumed` visible in the live stream; reject → CANCELLED).
+
+## 19. Follow-up increment — persisted decision records (branch coverage / audit)
+
+Control-node decisions are now first-class, tenant-scoped, queryable records:
+
+- **Contract** — `OrcfloDecisionRecord` (`lib/domain/orcflo.ts`): `id/tenantId/runId/workflowId/nodeId/kind` (`condition` | `router` | `for_each`), `subject` (the evaluated path/pickPath/collection), `result` (the decision value), `iteration` (matching the step it accompanied), `occurredAt`.
+- **Recording** — the engine appends one record whenever a control node decides: `condition` (result boolean), `router` (selected route), `for_each` (item emit or done-check). Recorded across synchronous, async-worker, and resumed executions; the resume path does not duplicate earlier records.
+- **Port + adapters** — `OrcfloDecisionRepository.append/listForRun` in `OrcfloPersistencePorts`, with in-memory and Prisma implementations; migration `20260817000000_orcflo_decision_records` adds the table + indexes, verified on PostgreSQL 16 (PGlite: JSON result round-trip).
+- **API** — `GET /api/v1/orcflo/runs/:runId/decisions` (tenant-scoped, `workflow:read`) returns the decisions in occurrence order.
+
+Verified: lint + strict typecheck + 235 tests (3 engine + 1 route decision tests: condition/router/for_each kinds with results and ordering, tenant isolation, async+resume recording) + optimized 40-route build + migration verified on PostgreSQL 16 (PGlite).
+
+With this, the "deterministic branch evaluation" open action is fully resolved: deterministic conditions/routers/loops (control-flow increment), parallel execution, agent-node wiring, and now persisted decision records + branch coverage evidence.

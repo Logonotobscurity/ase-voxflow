@@ -24,6 +24,7 @@ let postInterfaces: typeof import('../app/api/v1/orcflo/interfaces/route').POST;
 let getInterfaces: typeof import('../app/api/v1/orcflo/interfaces/route').GET;
 let postInterfaceRun: typeof import('../app/api/v1/orcflo/interfaces/[slug]/run/route').POST;
 let postApproval: typeof import('../app/api/v1/orcflo/runs/[runId]/approval/route').POST;
+let getDecisions: typeof import('../app/api/v1/orcflo/runs/[runId]/decisions/route').GET;
 
 beforeAll(async () => {
   process.env.ASE_RUNTIME_MODE = 'demo';
@@ -45,6 +46,7 @@ beforeAll(async () => {
   ({ POST: postInterfaces, GET: getInterfaces } = await import('../app/api/v1/orcflo/interfaces/route'));
   ({ POST: postInterfaceRun } = await import('../app/api/v1/orcflo/interfaces/[slug]/run/route'));
   ({ POST: postApproval } = await import('../app/api/v1/orcflo/runs/[runId]/approval/route'));
+  ({ GET: getDecisions } = await import('../app/api/v1/orcflo/runs/[runId]/decisions/route'));
 
   // Seed a READY workflow and the membership rows the demo identity
   // reconciliation requires.
@@ -489,6 +491,38 @@ describe('Orcflo HTTP routes', () => {
       decision: 'APPROVED',
     }), 'BUILDER'), { params: Promise.resolve({ runId: runId3 }) });
     expect(denied.status).toBe(403);
+  });
+
+  it('exposes persisted decision records for a run', async () => {
+    const saved = await postWorkflows(request('/api/v1/workflows', JSON.stringify({
+      name: 'Decisions smoke',
+      description: 'router + condition',
+      status: 'READY',
+      nodes: [
+        { id: 'start', type: 'trigger', label: 'Start', configuration: { executionMode: 'demo' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+        { id: 'route', type: 'router', label: 'Route', configuration: { routes: [{ key: 'a' }, { key: 'b' }], pickPath: 'kind' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+        { id: 'check', type: 'condition', label: 'Check', configuration: { path: 'n', op: 'gt', value: 0 }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+        { id: 'end', type: 'action', label: 'End', configuration: { executionMode: 'demo' }, retryPolicy: { maxRetries: 0, backoffMs: 0 }, metadata: {} },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'route', metadata: {} },
+        { id: 'e2', source: 'route', target: 'check', sourceHandle: 'a', metadata: {} },
+        { id: 'e3', source: 'check', target: 'end', condition: true, metadata: {} },
+      ],
+    }), 'BUILDER'));
+    const workflowId = (await saved.json()).data.workflow.id;
+    const started = await postRuns(request('/api/v1/orcflo/runs', JSON.stringify({
+      workflowId,
+      input: { kind: 'a', n: 5 },
+    })));
+    const runId = (await started.json()).data.run.id;
+
+    const response = await getDecisions(getRequest(`/api/v1/orcflo/runs/${runId}/decisions`), { params: Promise.resolve({ runId }) });
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    const byNode = new Map(payload.data.decisions.map((d: { nodeId: string; result: unknown }) => [d.nodeId, d.result]));
+    expect(byNode.get('route')).toMatchObject({ route: 'a' });
+    expect(byNode.get('check')).toMatchObject({ result: true });
   });
 
   it('registers a workflow as a tool, describes it, and soft-unregisters it', async () => {

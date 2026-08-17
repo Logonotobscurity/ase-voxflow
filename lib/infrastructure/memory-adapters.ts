@@ -11,6 +11,7 @@ import type {
 } from '../domain/schemas';
 import type {
   OrcfloBlueprint,
+  OrcfloDecisionRecord,
   OrcfloMeteringRecord,
   OrcfloModelProvider,
   OrcfloRun,
@@ -28,6 +29,7 @@ import type {
   EventPublisher,
   ExecutionRepository,
   OrcfloBlueprintRepository,
+  OrcfloDecisionRepository,
   OrcfloMeteringRepository,
   OrcfloModelProviderRepository,
   OrcfloPersistencePorts,
@@ -78,6 +80,7 @@ type InMemoryState = {
   orcfloRunEvents: Map<string, OrcfloRunEvent>;
   orcfloStepCache: Map<string, OrcfloStepCacheEntry>;
   orcfloMetering: Map<string, OrcfloMeteringRecord>;
+  orcfloDecisions: Map<string, OrcfloDecisionRecord>;
   orcfloModelProviders: Map<string, OrcfloModelProvider>;
   orcfloTriggers: Map<string, OrcfloTrigger>;
   orcfloBlueprints: Map<string, OrcfloBlueprint>;
@@ -99,6 +102,7 @@ function emptyState(): InMemoryState {
     orcfloRunEvents: new Map(),
     orcfloStepCache: new Map(),
     orcfloMetering: new Map(),
+    orcfloDecisions: new Map(),
     orcfloModelProviders: new Map(),
     orcfloTriggers: new Map(),
     orcfloBlueprints: new Map(),
@@ -403,6 +407,7 @@ export function createInMemoryPersistencePorts(): {
     runEvents: new InMemoryOrcfloRunEventRepository(store),
     stepCache: new InMemoryOrcfloStepCacheRepository(store),
     metering: new InMemoryOrcfloMeteringRepository(store),
+    decisions: new InMemoryOrcfloDecisionRepository(store),
     modelProviders: new InMemoryOrcfloModelProviderRepository(store),
     triggers: new InMemoryOrcfloTriggerRepository(store),
     blueprints: new InMemoryOrcfloBlueprintRepository(store),
@@ -599,6 +604,22 @@ export class InMemoryOrcfloMeteringRepository implements OrcfloMeteringRepositor
       .filter((record) => record.tenantId === tenantId && (options.since === undefined || record.recordedAt >= options.since))
       .sort((a, b) => a.recordedAt.localeCompare(b.recordedAt))
       .slice(0, safeLimit)
+      .map(copy);
+  }
+}
+
+export class InMemoryOrcfloDecisionRepository implements OrcfloDecisionRepository {
+  constructor(private readonly store: InMemoryPlatformStore) {}
+  async append(record: OrcfloDecisionRecord) {
+    const existing = this.store.state.orcfloDecisions.get(record.id);
+    assertTenantOwnership(existing, record);
+    if (existing) throw new PlatformError('CONFLICT', `Decision record ${record.id} already exists.`);
+    this.store.state.orcfloDecisions.set(record.id, copy(record));
+  }
+  async listForRun(tenantId: string, runId: string) {
+    return [...this.store.state.orcfloDecisions.values()]
+      .filter((record) => record.tenantId === tenantId && record.runId === runId)
+      .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
       .map(copy);
   }
 }

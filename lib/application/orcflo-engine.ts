@@ -6,12 +6,14 @@ import {
   ModelCallRequestSchema,
   ModelCallResultSchema,
   ModelProviderSchema,
+  OrcfloDecisionRecordSchema,
   OrcfloMeteringRecordSchema,
   OrcfloMeteringSummarySchema,
   OrcfloRunEventSchema,
   OrcfloRunSchema,
   OrcfloStepCacheEntrySchema,
   type ModelCallResult,
+  type OrcfloDecisionRecord,
   type OrcfloMeteringMetric,
   type OrcfloMeteringSummary,
   type OrcfloModelProvider,
@@ -445,6 +447,8 @@ export class OrcfloEngine {
               loopItem = { item, index: iteration, iteration };
             }
             step = this.stepResult(node.id, 'COMPLETED', nodeOutput, stepStartedAt, { iteration: act.iteration });
+            await this.appendDecision(run, workflow, node, 'for_each',
+              String(node.configuration.collection ?? ''), nodeOutput, act.iteration);
             evidence.push({
               type: 'internal_trace',
               summary: `for_each node ${node.id} emitted ${String((nodeOutput as Record<string, unknown>).done)} at iteration ${String((nodeOutput as Record<string, unknown>).iteration ?? 'final')}.`,
@@ -458,6 +462,8 @@ export class OrcfloEngine {
               (edge) => edge.loop === true || edgeGuardFires(edge, output),
             );
             step = this.stepResult(node.id, 'COMPLETED', output, stepStartedAt, { iteration: act.loopItem?.iteration ?? act.iteration });
+            await this.appendDecision(run, workflow, node, 'condition',
+              String(node.configuration.path ?? ''), output, act.loopItem?.iteration ?? act.iteration);
             evidence.push({
               type: 'internal_trace',
               summary: `condition node ${node.id} evaluated ${String(node.configuration.path)} -> ${String(output.result)}.`,
@@ -475,6 +481,8 @@ export class OrcfloEngine {
               );
             }
             step = this.stepResult(node.id, 'COMPLETED', output, stepStartedAt, { iteration: act.loopItem?.iteration ?? act.iteration });
+            await this.appendDecision(run, workflow, node, 'router',
+              String(node.configuration.pickPath ?? 'route'), output, act.loopItem?.iteration ?? act.iteration);
             evidence.push({
               type: 'internal_trace',
               summary: `router node ${node.id} selected route ${output.route}.`,
@@ -872,6 +880,37 @@ export class OrcfloEngine {
       if (!blocked && satisfied > 0) pending.push({ nodeId: node.id, iteration: 0 });
     }
     return { outputs, executedKeys, executedNodeIds, spentMinor, evidenceCountTotal, pending };
+  }
+
+  // --- Persisted decisions (branch coverage / audit) ---
+
+  async listRunDecisions(context: ActorContext, runId: string): Promise<OrcfloDecisionRecord[]> {
+    this.assertRead(context);
+    return this.ports.decisions.listForRun(context.tenantId, runId);
+  }
+
+  /** Append one persisted decision record for a control-node decision. */
+  private async appendDecision(
+    run: OrcfloRun,
+    workflow: Workflow,
+    node: WorkflowNode,
+    kind: OrcfloDecisionRecord['kind'],
+    subject: string,
+    result: unknown,
+    iteration: number,
+  ): Promise<void> {
+    await this.ports.decisions.append(OrcfloDecisionRecordSchema.parse({
+      id: createId('drec'),
+      tenantId: run.tenantId,
+      runId: run.id,
+      workflowId: workflow.id,
+      nodeId: node.id,
+      kind,
+      subject,
+      result,
+      iteration,
+      occurredAt: this.clock.isoNow(),
+    }));
   }
 
   // --- Model providers ---

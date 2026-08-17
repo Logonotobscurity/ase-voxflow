@@ -90,6 +90,7 @@ model Tenant {
   orcfloRunEvents OrcfloRunEvent[]
   orcfloStepCache  OrcfloStepCacheEntry[]
   orcfloMetering   OrcfloMeteringRecord[]
+  orcfloDecisions  OrcfloDecisionRecord[]
   orcfloModelProviders OrcfloModelProvider[]
   orcfloTriggers    OrcfloTrigger[]
   orcfloBlueprints  OrcfloBlueprint[]
@@ -432,6 +433,26 @@ model OrcfloMeteringRecord {
   @@index([tenantId, metric, recordedAt])
   @@index([tenantId, runId])
   @@index([tenantId, workflowId, recordedAt])
+}
+
+// Persisted control-node decisions (branch coverage / audit). One row per
+// deterministic decision a condition / router / for_each node made during
+// a run; result carries the decision value.
+model OrcfloDecisionRecord {
+  id         String   @id
+  tenantId   String
+  runId      String
+  workflowId String
+  nodeId     String
+  kind       String
+  subject    String
+  result     Json
+  iteration  Int      @default(0)
+  occurredAt DateTime @default(now())
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, runId, occurredAt])
+  @@index([tenantId, workflowId, nodeId])
 }
 
 model OrcfloModelProvider {

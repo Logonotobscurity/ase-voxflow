@@ -183,6 +183,31 @@ export const OrcfloMeteringMetricSchema = z.enum([
 ]);
 export type OrcfloMeteringMetric = z.infer<typeof OrcfloMeteringMetricSchema>;
 
+export const OrcfloDecisionKindSchema = z.enum(['condition', 'router', 'for_each']);
+export type OrcfloDecisionKind = z.infer<typeof OrcfloDecisionKindSchema>;
+
+/**
+ * Persisted control-node decision — a first-class, tenant-scoped record of
+ * what a deterministic control node decided, so branch coverage, audits and
+ * "why did the run go this way" are reconstructible after the fact.
+ * `subject` names what was evaluated (condition path, router pickPath,
+ * for_each collection); `result` carries the decision value.
+ */
+export const OrcfloDecisionRecordSchema = z.object({
+  id: IdSchema,
+  tenantId: IdSchema,
+  runId: IdSchema,
+  workflowId: IdSchema,
+  nodeId: IdSchema,
+  kind: OrcfloDecisionKindSchema,
+  subject: z.string().min(1).max(300),
+  result: z.unknown(),
+  /** Loop iteration scope (0 outside loops), matching the step it accompanied. */
+  iteration: z.number().int().nonnegative().default(0),
+  occurredAt: DateTimeSchema,
+}).strict();
+export type OrcfloDecisionRecord = z.infer<typeof OrcfloDecisionRecordSchema>;
+
 export const OrcfloMeteringRecordSchema = z.object({
   id: IdSchema,
   tenantId: IdSchema,

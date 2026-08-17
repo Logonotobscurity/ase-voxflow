@@ -15,6 +15,7 @@ import type {
 import type {
   ModelCallResult,
   OrcfloBlueprint,
+  OrcfloDecisionRecord,
   OrcfloMeteringRecord,
   OrcfloModelProvider,
   OrcfloRun,
@@ -371,6 +372,12 @@ export interface OrcfloMeteringRepository {
   list(tenantId: string, options?: { since?: string; limit?: number }): Promise<OrcfloMeteringRecord[]>;
 }
 
+/** Persisted control-node decisions (branch coverage / audit). */
+export interface OrcfloDecisionRepository {
+  append(record: OrcfloDecisionRecord): Promise<void>;
+  listForRun(tenantId: string, runId: string): Promise<OrcfloDecisionRecord[]>;
+}
+
 export interface OrcfloModelProviderRepository {
   findById(tenantId: string, id: string): Promise<OrcfloModelProvider | null>;
   save(provider: OrcfloModelProvider): Promise<void>;
@@ -411,6 +418,7 @@ export type OrcfloPersistencePorts = {
   runEvents: OrcfloRunEventRepository;
   stepCache: OrcfloStepCacheRepository;
   metering: OrcfloMeteringRepository;
+  decisions: OrcfloDecisionRepository;
   modelProviders: OrcfloModelProviderRepository;
   triggers: OrcfloTriggerRepository;
   blueprints: OrcfloBlueprintRepository;

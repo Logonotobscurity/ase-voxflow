@@ -7,6 +7,7 @@ import type {
   EventPublisher,
   ExecutionRepository,
   OrcfloBlueprintRepository,
+  OrcfloDecisionRepository,
   OrcfloMeteringRepository,
   OrcfloModelProviderRepository,
   OrcfloPersistencePorts,
@@ -42,12 +43,14 @@ import {
 import {
   BlueprintSchema,
   ModelProviderSchema,
+  OrcfloDecisionRecordSchema,
   OrcfloMeteringRecordSchema,
   OrcfloRunEventSchema,
   OrcfloRunSchema,
   OrcfloStepCacheEntrySchema,
   OrcfloTriggerSchema,
   type OrcfloBlueprint,
+  type OrcfloDecisionRecord,
   type OrcfloMeteringRecord,
   type OrcfloModelProvider,
   type OrcfloRun,
@@ -474,6 +477,7 @@ export function createPrismaPersistencePorts(
     runEvents: new PrismaOrcfloRunEventRepository(prisma),
     stepCache: new PrismaOrcfloStepCacheRepository(prisma),
     metering: new PrismaOrcfloMeteringRepository(prisma),
+    decisions: new PrismaOrcfloDecisionRepository(prisma),
     modelProviders: new PrismaOrcfloModelProviderRepository(prisma),
     triggers: new PrismaOrcfloTriggerRepository(prisma),
     blueprints: new PrismaOrcfloBlueprintRepository(prisma),
@@ -665,6 +669,33 @@ export class PrismaOrcfloMeteringRepository implements OrcfloMeteringRepository 
       take,
     });
     return rows.map(mapOrcfloMeteringRecord);
+  }
+}
+
+export class PrismaOrcfloDecisionRepository implements OrcfloDecisionRepository {
+  constructor(private readonly prisma: DatabaseClient) {}
+  async append(record: OrcfloDecisionRecord) {
+    await this.prisma.orcfloDecisionRecord.create({
+      data: {
+        id: record.id,
+        tenantId: record.tenantId,
+        runId: record.runId,
+        workflowId: record.workflowId,
+        nodeId: record.nodeId,
+        kind: record.kind,
+        subject: record.subject,
+        result: json(record.result),
+        iteration: record.iteration,
+        occurredAt: record.occurredAt,
+      },
+    });
+  }
+  async listForRun(tenantId: string, runId: string) {
+    const rows = await this.prisma.orcfloDecisionRecord.findMany({
+      where: { tenantId, runId },
+      orderBy: { occurredAt: 'asc' },
+    });
+    return rows.map(mapOrcfloDecisionRecord);
   }
 }
 
@@ -876,6 +907,9 @@ function mapOrcfloStepCacheEntry(row: Record<string, unknown>): OrcfloStepCacheE
 }
 function mapOrcfloMeteringRecord(row: Record<string, unknown>): OrcfloMeteringRecord {
   return OrcfloMeteringRecordSchema.parse(withIsoDates({ ...row, amount: Number(row.amount) }));
+}
+function mapOrcfloDecisionRecord(row: Record<string, unknown>): OrcfloDecisionRecord {
+  return OrcfloDecisionRecordSchema.parse(withIsoDates(row));
 }
 function mapOrcfloModelProvider(row: Record<string, unknown>): OrcfloModelProvider {
   return ModelProviderSchema.parse(withIsoDates(row));
