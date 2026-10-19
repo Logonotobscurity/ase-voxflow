@@ -28,7 +28,7 @@ import {
 import { Header } from './Header';
 import { Footer } from './Footer';
 import { ChatWidget } from './ChatWidget';
-import { VideoPreview } from './VideoPreview';
+import { ScreenAnalyzer } from './ScreenAnalyzer';
 import { AseSystemDiagram } from './AseSystemDiagram';
 import { LandingSyncDemo } from './LandingSyncDemo';
 
@@ -270,7 +270,7 @@ export function HomePage() {
       </main>
       <Footer />
       <ChatWidget />
-      <VideoPreview />
+      <ScreenAnalyzer />
     </>
   );
 }

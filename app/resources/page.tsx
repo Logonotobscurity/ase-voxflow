@@ -11,7 +11,7 @@ const resources = [
   [BookOpen, 'Architecture overview', 'Review current workflow, control and delivery boundaries.', '/platform#architecture', 'REFERENCE'],
   [Code2, 'Visual builder', 'Edit and run the canonical graph through the current demo canvas.', '/app/canvas', 'BUILD'],
   [GraduationCap, 'Industry patterns', 'Explore illustrative process-orchestration starting points.', '/solutions', 'LEARN'],
-  [MessageSquareText, 'Builder conversation', 'Contact the team about a workflow pattern or contribution.', 'mailto:hello@ase.africa?subject=Ase%20builder%20conversation', 'CONNECT'],
+  [MessageSquareText, 'Builder conversation', 'Contact the team about a workflow pattern or contribution.', 'mailto:aseafrica@astermail.org?subject=Ase%20builder%20conversation', 'CONNECT'],
   [Workflow, 'Workflow gallery', 'Explore illustrative finance, people and operations starting points.', '/marketplace?category=Workflow%20Templates', 'DISCOVER'],
   [Radio, 'Capability status', 'Distinguish verified demo paths from roadmap integrations.', '#status', 'VERIFY'],
 ] as const;
