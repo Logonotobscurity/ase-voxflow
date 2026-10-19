@@ -8,6 +8,6 @@ export default function SecurityPage() {
     { title: 'Identity and access', body: 'Canonical role and permission checks exist, but the current demo headers are spoofable and are not authentication. Trusted identity and tenant-membership verification are not implemented.' },
     { title: 'Data protection', body: 'A production deployment must verify encryption in transit and at rest, tenant isolation, secret handling, retention and regional processing. Those deployment controls are not proven by this repository.' },
     { title: 'Workflow governance', body: 'The runtime records versioned workflow state, correlated events, execution evidence and explicit approval stops. Durable audit delivery, approval resumption and external side-effect adapters remain unimplemented or unverified.' },
-    { title: 'Responsible disclosure', body: 'Security researchers can report a potential issue to security@ase.africa. Include reproducible detail and avoid accessing data that is not yours.' },
+    { title: 'Responsible disclosure', body: 'Security researchers can report a potential issue to aseafrica@astermail.org. Include reproducible detail and avoid accessing data that is not yours.' },
   ]} />;
 }

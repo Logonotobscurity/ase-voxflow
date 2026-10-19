@@ -70,6 +70,13 @@ export function Header() {
   }, [menu]);
 
   useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1051px)');
+    const onChange = () => { if (desktop.matches) setMobile(false); else setMenu(null); };
+    desktop.addEventListener('change', onChange);
+    return () => desktop.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
     document.body.style.overflow = mobile ? 'hidden' : '';
     if (mobile) window.setTimeout(() => document.querySelector<HTMLElement>('.mobile-sheet a')?.focus(), 0);
     return () => { document.body.style.overflow = ''; };
@@ -78,7 +85,7 @@ export function Header() {
   const toggle = (name: Exclude<MenuName, null>) => setMenu((current) => current === name ? null : name);
 
   return (
-    <header className="site-nav" ref={root}>
+    <header className={`site-nav ${mobile ? 'is-open' : ''}`} ref={root}>
       <div className="container nav-inner">
         <Brand />
         <nav className="nav-links" aria-label="Primary navigation">
@@ -142,15 +149,21 @@ export function Header() {
         <button ref={mobileToggleRef} className="mobile-toggle" onClick={() => setMobile((value) => !value)} aria-expanded={mobile} aria-controls="mobile-navigation" aria-label={mobile ? 'Close menu' : 'Open menu'}>{mobile ? <X /> : <Menu />}</button>
       </div>
       {mobile && (
-        <nav id="mobile-navigation" className="mobile-sheet" aria-label="Mobile navigation">
-          <Link href="/platform">Platform overview <ChevronRight size={17} /></Link>
-          <Link href="/app/canvas">Visual Canvas <Network size={17} /></Link>
-          <Link href="/app/voice">Voice Studio <Mic2 size={17} /></Link>
-          <Link href="/app/vendors">Vendor Operations <BriefcaseBusiness size={17} /></Link>
-          <Link href="/solutions">Solutions <Zap size={17} /></Link>
-          <Link href="/marketplace">Marketplace <Blocks size={17} /></Link>
-          <Link href="/resources">Resources <ChevronRight size={17} /></Link>
-          <Link href="/company">Company <ChevronRight size={17} /></Link>
+        <nav id="mobile-navigation" className="mobile-sheet" aria-label="Mobile navigation" onClick={(event) => { if ((event.target as HTMLElement).closest('a')) setMobile(false); }}>
+          <div className="mobile-group">
+            <span className="mobile-group-title">Platform</span>
+            <Link href="/platform">Platform overview <LayoutDashboard size={17} /></Link>
+            <Link href="/app/canvas">Visual Canvas <Network size={17} /></Link>
+            <Link href="/app/voice">Voice Studio <Mic2 size={17} /></Link>
+            <Link href="/app/vendors">Vendor Operations <BriefcaseBusiness size={17} /></Link>
+          </div>
+          <div className="mobile-group">
+            <span className="mobile-group-title">Discover</span>
+            <Link href="/solutions">Solutions <Zap size={17} /></Link>
+            <Link href="/marketplace">Marketplace <Blocks size={17} /></Link>
+            <Link href="/resources">Resources <ChevronRight size={17} /></Link>
+            <Link href="/company">Company <ChevronRight size={17} /></Link>
+          </div>
           <div className="mobile-actions"><Link className="btn btn-light" href="/platform">See platform</Link><Link className="btn btn-dark" href="/app/canvas">Open canvas</Link></div>
         </nav>
       )}
