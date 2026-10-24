@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -70,6 +70,14 @@ export function Header() {
   }, [menu]);
 
   useEffect(() => {
+    // The mobile sheet is only rendered by the <=1050px layout; release it (and the scroll lock) when the viewport widens.
+    const desktop = window.matchMedia('(min-width: 1051px)');
+    const onChange = (event: MediaQueryListEvent) => { if (event.matches) setMobile(false); };
+    desktop.addEventListener('change', onChange);
+    return () => desktop.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
     document.body.style.overflow = mobile ? 'hidden' : '';
     if (mobile) window.setTimeout(() => document.querySelector<HTMLElement>('.mobile-sheet a')?.focus(), 0);
     return () => { document.body.style.overflow = ''; };
@@ -77,8 +85,41 @@ export function Header() {
 
   const toggle = (name: Exclude<MenuName, null>) => setMenu((current) => current === name ? null : name);
 
+  // Arrow/Home/End movement between items, as expected of an ARIA menu.
+  const onDropdownKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    const next = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: items.length - 1 }[event.key];
+    if (next === undefined || !items.length) return;
+    event.preventDefault();
+    items[(next + items.length) % items.length].focus();
+  };
+
+  // While the full-screen sheet is open, keep Tab focus inside the header (toggle + sheet).
+  const onHeaderKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (!mobile || event.key !== 'Tab' || !root.current) return;
+    const targets = Array.from(root.current.querySelectorAll<HTMLElement>('.mobile-toggle, .mobile-sheet a'));
+    const first = targets[0];
+    const last = targets[targets.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  // Close on any link selection, including a link to the current route (no pathname change).
+  const closeOnLink = (event: ReactMouseEvent<HTMLElement>) => {
+    if ((event.target as HTMLElement).closest('a')) {
+      setMenu(null);
+      setMobile(false);
+    }
+  };
+
   return (
-    <header className="site-nav" ref={root}>
+    <header className={`site-nav ${mobile ? 'is-menu-open' : ''}`} ref={root} onKeyDown={onHeaderKeyDown}>
       <div className="container nav-inner">
         <Brand />
         <nav className="nav-links" aria-label="Primary navigation">
@@ -94,7 +135,7 @@ export function Header() {
               Platform <ChevronDown size={13} />
             </button>
             {menu === 'platform' && (
-              <div id="platform-menu" className="nav-dropdown" ref={dropdownRef} role="menu">
+              <div id="platform-menu" className="nav-dropdown" ref={dropdownRef} role="menu" aria-label="Platform" onKeyDown={onDropdownKeyDown} onClick={closeOnLink}>
                 <div className="drop-title">Build and operate</div>
                 <Link className="drop-item" href="/platform" role="menuitem"><span className="drop-icon"><LayoutDashboard size={17} /></span><span><strong>Platform overview</strong><span>See how the complete operating layer fits together.</span></span></Link>
                 <Link className="drop-item" href="/app/canvas" role="menuitem"><span className="drop-icon"><Network size={17} /></span><span><strong>Visual Canvas</strong><span>Design and run canonical demo workflow graphs.</span></span></Link>
@@ -116,7 +157,7 @@ export function Header() {
               Marketplace <ChevronDown size={13} />
             </button>
             {menu === 'marketplace' && (
-              <div id="marketplace-menu" className="nav-dropdown wide" ref={dropdownRef} role="menu">
+              <div id="marketplace-menu" className="nav-dropdown wide" ref={dropdownRef} role="menu" aria-label="Marketplace" onKeyDown={onDropdownKeyDown} onClick={closeOnLink}>
                 <div>
                   <div className="drop-title">Discover</div>
                   <Link className="drop-item" href="/marketplace" role="menuitem"><span className="drop-icon"><Store size={17} /></span><span><strong>Explore all solutions</strong><span>Agents, connectors and workflow blueprints.</span></span></Link>
@@ -142,7 +183,7 @@ export function Header() {
         <button ref={mobileToggleRef} className="mobile-toggle" onClick={() => setMobile((value) => !value)} aria-expanded={mobile} aria-controls="mobile-navigation" aria-label={mobile ? 'Close menu' : 'Open menu'}>{mobile ? <X /> : <Menu />}</button>
       </div>
       {mobile && (
-        <nav id="mobile-navigation" className="mobile-sheet" aria-label="Mobile navigation">
+        <nav id="mobile-navigation" className="mobile-sheet" aria-label="Mobile navigation" onClick={closeOnLink}>
           <Link href="/platform">Platform overview <ChevronRight size={17} /></Link>
           <Link href="/app/canvas">Visual Canvas <Network size={17} /></Link>
           <Link href="/app/voice">Voice Studio <Mic2 size={17} /></Link>

@@ -6,7 +6,7 @@ const groups = [
   { title: 'Platform', links: [['Overview', '/platform'], ['Visual Canvas', '/app/canvas'], ['Voice Studio', '/app/voice'], ['Vendor Operations', '/app/vendors']] },
   { title: 'Discover', links: [['Solutions', '/solutions'], ['Marketplace', '/marketplace'], ['Resources', '/resources'], ['Company', '/company']] },
   { title: 'Trust', links: [['Security', '/security'], ['Privacy', '/privacy'], ['Terms', '/terms'], ['System status', '/resources']] },
-  { title: 'Start', links: [['Build a workflow', '/app/canvas'], ['Explore agents', '/marketplace'], ['Talk to us', 'mailto:hello@ase.africa'], ['Creator programme', '/company']] },
+  { title: 'Start', links: [['Build a workflow', '/app/canvas'], ['Explore agents', '/marketplace'], ['Talk to us', 'mailto:aseafrica@astermail.org'], ['Creator programme', '/company']] },
 ];
 
 export function Footer() {
@@ -17,7 +17,7 @@ export function Footer() {
           <div className="footer-brand">
             <Brand />
             <p>A governed workflow platform in development, shaped around African operating contexts and explicit human control.</p>
-            <a className="footer-contact" href="mailto:hello@ase.africa">hello@ase.africa <ArrowUpRight size={14} /></a>
+            <a className="footer-contact" href="mailto:aseafrica@astermail.org">aseafrica@astermail.org <ArrowUpRight size={14} /></a>
           </div>
           {groups.map((group) => (
             <div className="footer-group" key={group.title}>

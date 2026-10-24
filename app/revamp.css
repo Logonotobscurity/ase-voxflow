@@ -94,10 +94,18 @@ body {
 /* Navigation */
 .site-nav {
   color: var(--ink);
-  background: rgba(255,204,51,.96);
+  background: transparent;
   border-bottom: 2px solid var(--ink);
-  backdrop-filter: blur(10px);
+  /* A backdrop-filter on the header itself would make it the containing block for the
+     position:fixed mobile sheet, collapsing the sheet to the header's height. Paint it on a layer instead. */
+  backdrop-filter: none;
 }
+.site-nav::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: rgba(255,204,51,.96); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+/* Lift the open menu above the floating chat launcher/panel (z 54–62); modal dialogs (69+) stay on top. */
+.site-nav.is-menu-open { z-index: 65; }
 .nav-inner { gap: 24px; }
 .brand { color: inherit; gap: 10px; }
 .brand-mark {
@@ -119,15 +127,19 @@ body {
   width: 382px; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); border-radius: 9px; box-shadow: var(--shadow);
 }
 .nav-dropdown.wide { width: 640px; }
+.nav-dropdown { max-width: calc(100vw - 32px); max-height: calc(100dvh - var(--nav-h) - 24px); overflow-y: auto; overscroll-behavior: contain; }
 .drop-title { color: var(--muted); font-family: ui-monospace, "SFMono-Regular", monospace; }
 .drop-item { border-radius: 6px; }
 .drop-item:hover, .drop-item:focus-visible { background: var(--primary); }
 .drop-icon { border: 1px solid var(--ink); border-radius: 4px; color: var(--ink); background: transparent; }
 .drop-item span span { color: var(--ink-soft); }
 .mobile-toggle { color: var(--ink); min-width: 44px; min-height: 44px; }
-.mobile-sheet { inset: var(--nav-h) 0 0; background: var(--paper); }
+.mobile-sheet { inset: var(--nav-h) 0 0; padding-bottom: 0; background: var(--paper); overscroll-behavior: contain; }
+.mobile-sheet a:focus-visible { outline-offset: -3px; }
+@media (min-width: 1051px) { .mobile-sheet { display: none; } }
 .mobile-sheet a { min-height: 56px; border-bottom: 1px solid var(--ink); }
-.mobile-actions { background: var(--paper); }
+.mobile-actions { padding-bottom: max(16px, env(safe-area-inset-bottom)); background: var(--paper); }
+.mobile-actions a { min-height: 46px; justify-content: center; border-bottom-width: 2px; }
 
 /* Editorial hero */
 .hero {
@@ -778,4 +790,41 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .sync-status.is-live i,.sync-signal.is-moving i,.sync-wave i,.demo-node.is-run-active,.chat-panel,.chat-backdrop { animation: none !important; }
   .sync-flow-line i,.workflow-canvas-inner,.workflow-run-status > span i { transition: none; }
+}
+
+/* Company: founder profile */
+.founder-layout { display: grid; grid-template-columns: minmax(260px, .72fr) minmax(0, 1.6fr); gap: clamp(32px, 6vw, 84px); align-items: start; }
+.founder-card { position: sticky; top: calc(var(--nav-h) + 24px); padding: 28px; border: 2px solid var(--ink); border-radius: 7px; background: var(--paper); box-shadow: var(--shadow); }
+.founder-monogram { width: 64px; height: 64px; display: grid; place-items: center; margin-bottom: 26px; border: 2px solid var(--ink); border-radius: 50%; background: var(--primary); font: 800 18px/1 ui-monospace, "SFMono-Regular", monospace; letter-spacing: .04em; }
+.founder-name { margin: 12px 0 6px; font-weight: 800; font-size: 24px; line-height: 1.15; letter-spacing: -.03em; }
+.founder-role { margin: 0 0 18px; color: var(--ink-soft); font-size: 14px; font-weight: 700; }
+.founder-meta { display: flex; align-items: center; gap: 7px; margin: 0; padding: 10px 0; border-top: 1px solid var(--line-soft); color: var(--ink-soft); font-size: 13px; }
+.founder-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 0; padding: 0; list-style: none; }
+.founder-tags li { padding: 5px 8px; border: 1px solid var(--ink); border-radius: 5px; background: var(--surface-2); font: 750 10px/1.2 ui-monospace, "SFMono-Regular", monospace; }
+.founder-copy { max-width: 720px; }
+.founder-copy .h2 { margin: 0 0 26px; }
+.founder-copy > p:not(.eyebrow):not(.lede) { margin: 0 0 18px; color: var(--ink-soft); font-size: 16px; line-height: 1.75; }
+.founder-copy .lede { margin: 0 0 22px; color: var(--ink); }
+.founder-goal { margin: 30px 0; padding: 4px 0 4px 22px; border-left: 4px solid var(--primary-strong); color: var(--ink); font-size: clamp(19px, 2.4vw, 24px); font-weight: 600; line-height: 1.4; letter-spacing: -.02em; }
+.founder-connect { margin-top: 44px; padding-top: 30px; border-top: 2px solid var(--ink); }
+.founder-connect h3 { margin: 0 0 18px; font-size: 20px; letter-spacing: -.02em; }
+.connect-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.connect-card { position: relative; height: 100%; min-height: 132px; display: flex; flex-direction: column; gap: 6px; padding: 18px; border: 2px solid var(--ink); border-radius: 7px; background: var(--paper); transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
+.connect-card strong { padding-right: 24px; font-size: 15px; }
+.connect-card span { color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
+.connect-card svg { position: absolute; top: 18px; right: 16px; }
+a.connect-card:hover, a.connect-card:focus-visible { background: var(--primary); transform: translate(-2px, -2px); box-shadow: 4px 4px 0 var(--ink); }
+.connect-card.is-pending { border-style: dashed; background: transparent; }
+.connect-card em { margin-top: auto; color: var(--muted); font: 800 10px/1.2 ui-monospace, "SFMono-Regular", monospace; font-style: normal; letter-spacing: .08em; text-transform: uppercase; }
+@media (max-width: 900px) {
+  .founder-layout { grid-template-columns: 1fr; }
+  .founder-card { position: static; }
+  .founder-copy { max-width: none; }
+}
+@media (max-width: 640px) {
+  .connect-grid { grid-template-columns: 1fr; }
+  .connect-card { min-height: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  a.connect-card:hover, a.connect-card:focus-visible { transform: none; }
 }
